@@ -28,7 +28,6 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Legend,
 } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
-import { apiUrl } from "@/lib/apiFetch";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch, apiUrl } from "@/lib/apiFetch";
@@ -66,6 +65,27 @@ function driveDirectDownloadUrl(f: {
     }
   }
   return null;
+}
+
+function downloadBlob(blob: Blob, filename?: string) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename || "download";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(objectUrl);
+}
+
+function openInNewTab(url: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 export default function StockDetailPage() {
@@ -1488,17 +1508,28 @@ export default function StockDetailPage() {
                                               variant="ghost"
                                               size="sm"
                                               className="font-mono text-xs h-6 ml-1"
-                                              title={hasLocalFile ? "Download from app server" : "Download via Google Drive (opens new tab)"}
-                                              onClick={() => {
+                                              title={driveDl ? "Download via Google Drive" : "Download from app server"}
+                                              onClick={async () => {
+                                                if (driveDl) {
+                                                  openInNewTab(driveDl);
+                                                  return;
+                                                }
+
                                                 if (hasLocalFile && localUrl) {
-                                                  const link = document.createElement("a");
-                                                  link.href = localUrl;
-                                                  link.download = f.filename || undefined;
-                                                  document.body.appendChild(link);
-                                                  link.click();
-                                                  document.body.removeChild(link);
-                                                } else if (driveDl) {
-                                                  window.open(driveDl, "_blank", "noopener,noreferrer");
+                                                  try {
+                                                    const response = await fetch(localUrl, { credentials: "include" });
+                                                    if (!response.ok) throw new Error(`Local file unavailable (${response.status})`);
+                                                    const blob = await response.blob();
+                                                    downloadBlob(blob, f.filename);
+                                                    return;
+                                                  } catch {
+                                                    toast({
+                                                      title: "Download failed",
+                                                      description: "Local file is unavailable.",
+                                                      variant: "destructive",
+                                                    });
+                                                    return;
+                                                  }
                                                 }
                                               }}
                                             >
