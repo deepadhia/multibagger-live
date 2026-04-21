@@ -250,7 +250,7 @@ ${JSON.stringify(pendingLedger, null, 2)}
 Credibility Score (kept vs broken promises so far): ${credibility}
 
 ═══════════════════════════════════════
-⚠️ NON-NEGOTIABLE RULES (HARD LOGIC) — V9
+⚠️ NON-NEGOTIABLE RULES (HARD LOGIC) — V10
 ═══════════════════════════════════════
 
 1. **THESIS DOMINANCE RULE (HARD GATE)**
@@ -274,6 +274,8 @@ Credibility Score (kept vs broken promises so far): ${credibility}
 5. **VALUATION DISCIPLINE RULE**
    IF valuation_score < 40 (stretched):
    → position_size MUST NOT be "full"
+   IF valuation_score ≥ 60:
+   → MUST REMOVE "valuation_stretched" from decision_blockers
 
 6. **PRIMARY METRIC OVERRIDE RULE**
    IF: primary_metric_strength >= 30 AND margins stable or expanding AND no HIGH kill switch
@@ -288,7 +290,9 @@ Credibility Score (kept vs broken promises so far): ${credibility}
 8. **GROWTH QUALITY CAP**
    IF any of the following:
    - Top 1–2 customers > 30% of revenue → add "customer_concentration_risk"
-   - Working capital expanding faster than revenue → add "working_capital_risk"
+   - Working capital expanding faster than revenue:
+     → IF clearly explained AND tied to strong growth/order backlog → TEMPORARY risk → reduce penalty severity, do NOT hard-cap conviction.
+     → ELSE (unexplained/chronic) → STRUCTURAL risk → add "working_capital_risk" and full penalty.
    - OCF lagging EBITDA AND management not addressing it → add "earnings_quality_risk"
    THEN:
    → cap conviction_score ≤ 60 regardless of sub-component scores
@@ -338,9 +342,9 @@ Credibility Score (kept vs broken promises so far): ${credibility}
 
 14. **SKEPTICISM RULE**
     IF signals.warnings is empty AND management_analysis.red_flags is empty AND management_analysis.dodged_questions_or_omissions is empty:
-    → reduce conviction_score by 5 points minimum
-    → add "low_disclosure_risk" to decision_blockers
-    A company with zero disclosures, zero warnings, and zero omissions is statistically implausible. Default to skepticism.
+    → YOU MUST reduce conviction_score by EXACTLY 5 points
+    → YOU MUST add "low_disclosure_risk" to decision_blockers
+    A company with zero disclosures, zero warnings, and zero omissions is statistically implausible. Default to skepticism. Clean companies must still be penalized slightly.
 
 15. **PENALTY NORMALIZATION RULE (CRITICAL)**
     If multiple penalties originate from the SAME root cause, apply ONLY the strongest single penalty. Do NOT stack.
@@ -357,7 +361,9 @@ Credibility Score (kept vs broken promises so far): ${credibility}
     → reduce position_size by one level: full → half, half → starter
     → add "theme_concentration_risk" to decision_blockers
     → state the conflicting theme in rationale.risks
-    If theme overlap cannot be determined (no context provided), still flag it as: "theme_concentration_risk: unverified — check portfolio before sizing."
+    If theme overlap cannot be determined (no context provided):
+    → ONLY FLAG as "theme_concentration_risk: unverified — check portfolio before sizing"
+    → DO NOT change position_size
     ⚠️ Sector concentration is a portfolio-level failure mode, not a stock-level one. Never allow 3+ FULL positions in the same macro theme.
 
 ═══════════════════════════════════════
@@ -394,7 +400,8 @@ Final Score = (thesis_score × 0.45) + (conviction_score × 0.25) + (valuation_s
 You MUST choose ONE final_action:
 - BUILD POSITION: Initiating or re-entering. Thesis strong, no kill switch, valuation acceptable. Prior thesis_score ≤ 75 OR fresh position.
 - ADD POSITION: Existing hold. ALL of: prior thesis > 75, current improving, execution accelerating, no new risks.
-- WAIT AND WATCH: Thesis intact but valuation high OR conviction low OR signals mixed OR momentum decelerating.
+- WAIT AND WATCH: Thesis intact but valuation high OR conviction low (< 60) OR signals mixed OR momentum decelerating.
+  → EXCEPTION: IF thesis_score ≥ 80 AND strong momentum (execution_signals ≥ 12): DO NOT default to WAIT AND WATCH if conviction < 60. Return BUILD POSITION with "starter" size instead.
 - CUT POSITION: Thesis broken OR kill switch triggered OR thesis_score < 60 (subject to Rule 11).
 
 SIZING RULES (small/mid-cap discipline — conservative by default):
@@ -425,7 +432,7 @@ STEP 9b: Apply Portfolio Awareness (Rule 16) — downgrade size if theme concent
 STEP 9c: Apply Penalty Normalization (Rule 15) — consolidate overlapping penalties before emitting final scores
 
 ═══════════════════════════════════════
-OUTPUT FORMAT (STRICT JSON — V9)
+OUTPUT FORMAT (STRICT JSON — V10)
 ═══════════════════════════════════════
 Return a SINGLE JSON object exactly matching this schema. No prose. No markdown backticks.
 

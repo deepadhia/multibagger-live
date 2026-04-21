@@ -179,14 +179,15 @@ const CATEGORY_LABELS = {
 
 function getCategoryAndLabel(filename) {
   const base = path.basename(filename, ".pdf");
-  const parts = base.split("_");
-  const first = (parts[0] || "").toLowerCase();
-  const second = (parts[1] || "").toLowerCase();
+  const lower = base.toLowerCase();
+  
   let category = "other";
-  if (first === "concall" && second === "transcript") category = "concall_transcript";
-  else if (first === "earnings" && second === "result") category = "earnings_result";
-  else if (first === "investor" && second === "presentation") category = "investor_presentation";
-  else if (["earnings_result", "concall_transcript", "investor_presentation"].includes(first)) category = first;
+  // The filename format from Node downloader is: 
+  // TICKER_FYXX-QX_category_YYYY-MM-DD_screener.pdf
+  if (lower.includes("concall_transcript")) category = "concall_transcript";
+  else if (lower.includes("earnings_result")) category = "earnings_result";
+  else if (lower.includes("investor_presentation")) category = "investor_presentation";
+
   const label = CATEGORY_LABELS[category] || base.replace(/_/g, " ");
   return { category, label };
 }

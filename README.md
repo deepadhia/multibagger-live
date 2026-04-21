@@ -196,6 +196,17 @@ The app will be available at `http://localhost:5173`.
 - **Announcements**: On each stock’s detail page, an **Announcements** tab lists downloaded filings (earnings, concall transcripts, investor presentations) by quarter and type with **View** links. Use **Download filings** to fetch from NSE & Screener.
 - **Google Drive upload** (optional): Upload announcements to a Drive folder in a structured layout. See [docs/GOOGLE_DRIVE_SETUP.md](docs/GOOGLE_DRIVE_SETUP.md) for creating a service account and API key.
 
+## V10 Decision Intelligence Framework
+
+The system now operates on a hardened, institutional-grade decision engine (V10) that separates primary thesis drivers from secondary noise. The AI agent executes a strict, deterministic sequence:
+
+1. **Multibagger Mode (Lumpy Business Logic)**: Protects high-conviction winners from premature exits. For project-based or capex-heavy businesses, the engine requires a minimum of 3 quarters of deterioration before issuing a CUT signal.
+2. **Penalty Normalization**: Consolidates overlapping penalties (e.g., WC stretch + OCF lag) to prevent artificial score collapse.
+3. **Portfolio Awareness**: Flags theme concentration bounds without enforcing blind downgrades when isolated from broader portfolio context.
+4. **Earnings & Growth Quality Caps**: Strict gates enforcing OCF/EBITDA > 0.5 and tracking customer concentration traps. Conviction is capped automatically, forcing conservative sizing (starter).
+5. **Decision Mapping Override**: Identifies high-growth stocks with strong momentum, forcing them into a `BUILD` recommendation (starter size) instead of sidelining them into a `WAIT AND WATCH` bucket if they haven't yet reached high mathematical conviction.
+6. **Skepticism Discipline**: Actively penalizes structurally perfect management transcripts missing natural business friction.
+
 ## Database
 
 All tables have RLS enabled. Migrations in `supabase/migrations/` are applied automatically when you run `supabase start`. Key tables:

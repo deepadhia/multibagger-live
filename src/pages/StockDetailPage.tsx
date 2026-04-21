@@ -109,7 +109,7 @@ export default function StockDetailPage() {
   const { data: filingsData, isLoading: filingsLoading, refetch: refetchFilings } = useQuery({
     queryKey: ["transcripts-files", stock?.ticker],
     queryFn: async () => {
-      const r = await apiFetch(`/api/transcripts/files/${encodeURIComponent(stock!.ticker)}`);
+      const r = await apiFetch(`/api/transcripts/files/${encodeURIComponent(stock!.ticker)}`, { cache: "no-store" });
       if (!r.ok) throw new Error(await r.text());
       return r.json();
     },
@@ -120,7 +120,7 @@ export default function StockDetailPage() {
   const { data: driveStatusData } = useQuery({
     queryKey: ["transcripts-drive-status"],
     queryFn: async () => {
-      const r = await apiFetch(apiUrl("/api/transcripts/drive-status"));
+      const r = await apiFetch(apiUrl("/api/transcripts/drive-status"), { cache: "no-store" });
       if (!r.ok) throw new Error(`Drive status: ${r.status}`);
       const data = await r.json();
       return { driveConfigured: data?.driveConfigured === true, needsConnect: data?.needsConnect === true };
@@ -246,8 +246,7 @@ export default function StockDetailPage() {
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data?.error || `Reset failed: ${r.status}`);
-      queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
-      await refetchFilings();
+      await queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
       const periodLabel = period === "3m" ? "3 months" : period === "6m" ? "6 months" : "1 year";
       const localMsg = data?.deleted ? `${data.deleted} local file(s)` : "";
       const driveMsg = data?.deletedFromDrive ? `${data.deletedFromDrive} from Drive` : "";
@@ -1326,8 +1325,7 @@ export default function StockDetailPage() {
                           throw new Error(data?.error || `Request failed: ${r.status}`);
                         }
                         // Refresh listings for this stock after successful fetch
-                        queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
-                        await refetchFilings();
+                        await queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
                         toast({
                           title: "Filings fetched",
                           description: `Fetched latest filings for ${stock.ticker}`,
@@ -1353,7 +1351,7 @@ export default function StockDetailPage() {
                     disabled={filingsLoading || !stock?.ticker}
                     onClick={async () => {
                       if (!stock?.ticker) return;
-                      queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
+                      await queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
                       const result = await refetchFilings();
                       if (result.data?.ok && Array.isArray(result.data.files)) {
                         const n = result.data.files.length;

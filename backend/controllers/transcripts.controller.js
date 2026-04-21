@@ -39,6 +39,7 @@ export async function downloadTranscriptsHandler(req, res) {
 export async function listTranscriptFilesHandler(req, res) {
   try {
     const { symbol, files } = await listDownloadedFilesForSymbol(req.params.symbol);
+    res.set("Cache-Control", "no-store");
     res.json({ ok: true, symbol, files });
   } catch (err) {
     console.error("transcripts/files error:", err);
@@ -87,6 +88,7 @@ export async function uploadToDriveHandler(req, res) {
 export function driveStatusHandler(_req, res) {
   try {
     const { driveConfigured, needsConnect } = getDriveStatus();
+    res.set("Cache-Control", "no-store");
     res.json({ ok: true, driveConfigured, needsConnect: needsConnect || false });
   } catch {
     res.json({ ok: true, driveConfigured: false, needsConnect: false });
