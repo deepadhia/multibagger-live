@@ -629,6 +629,7 @@ const Index = () => {
                           compact
                           decision={ctx.verdict.decision}
                           convictionLevel={ctx.verdict.convictionLevel}
+                          positionSize={ctx.verdict.positionSize}
                         />
                       ) : (
                         <span className="text-[10px] text-muted-foreground">—</span>

@@ -50,6 +50,19 @@ interface GeminiV5Response {
     conviction_level: string;
     action_rationale: string;
   };
+  scoring?: {
+    thesis_score: number;
+    conviction_score: number;
+    valuation_score: number;
+  };
+  decision?: {
+    final_action: string;
+    position_size: string;
+    decision_confidence?: string;
+  };
+  rationale?: {
+    why_this_action: string;
+  };
   promise_updates?: {
     id: string;
     status: "kept" | "broken" | "pending";
@@ -106,6 +119,10 @@ interface NormalizedData {
   action_decision: string | null;
   action_conviction: string | null;
   action_rationale: string | null;
+  thesis_score: number | null;
+  valuation_score: number | null;
+  conviction_score: number | null;
+  position_size: string | null;
   raw: unknown;
 }
 
@@ -159,9 +176,13 @@ function normalize(data: any, fallbackQuarter: string): NormalizedData {
         target_deadline: p.target_deadline || null,
         confidence: p.confidence,
       })),
-      action_decision: v.actionable_verdict?.decision || null,
-      action_conviction: v.actionable_verdict?.conviction_level || null,
-      action_rationale: v.actionable_verdict?.action_rationale || null,
+      action_decision: v.decision?.final_action || v.actionable_verdict?.decision || null,
+      action_conviction: v.decision?.decision_confidence || v.actionable_verdict?.conviction_level || null,
+      action_rationale: v.rationale?.why_this_action || v.actionable_verdict?.action_rationale || null,
+      thesis_score: v.scoring?.thesis_score ?? null,
+      valuation_score: v.scoring?.valuation_score ?? null,
+      conviction_score: v.scoring?.conviction_score ?? null,
+      position_size: v.decision?.position_size ?? null,
       raw: data,
     };
   }
@@ -196,6 +217,10 @@ function normalize(data: any, fallbackQuarter: string): NormalizedData {
     action_decision: null,
     action_conviction: null,
     action_rationale: null,
+    thesis_score: null,
+    valuation_score: null,
+    conviction_score: null,
+    position_size: null,
     raw: data,
   };
 }
@@ -342,12 +367,6 @@ export function ImportGeminiResponse({ stockId, ticker }: Props) {
     }
   };
 
-  const driftColor = (status: string | null) => {
-    if (!status || status === "none") return null;
-    if (status === "confirmed") return "border-terminal-red text-terminal-red";
-    return "border-terminal-amber text-terminal-amber";
-  };
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -484,6 +503,50 @@ export function ImportGeminiResponse({ stockId, ticker }: Props) {
                     <Badge variant="outline" className="text-[10px] text-muted-foreground border-muted-foreground/40">
                       {parsed.action_conviction}
                     </Badge>
+                  )}
+                  {parsed.position_size && (
+                    <Badge variant="outline" className={`text-[10px] uppercase tracking-wide ${
+                      parsed.position_size === "full" ? "text-terminal-green border-terminal-green/40" :
+                      parsed.position_size === "half" ? "text-terminal-amber border-terminal-amber/40" :
+                      parsed.position_size === "starter" ? "text-sky-400 border-sky-400/40" :
+                      "text-terminal-red border-terminal-red/40"
+                    }`}>
+                      {parsed.position_size}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              {/* Scoring row — only shown for V7 responses */}
+              {(parsed.thesis_score != null || parsed.valuation_score != null || parsed.conviction_score != null) && (
+                <div className="flex items-center gap-3 flex-wrap bg-muted/40 rounded px-2 py-1.5">
+                  {parsed.thesis_score != null && (
+                    <span className={`tabular-nums ${
+                      parsed.thesis_score >= 80 ? "text-terminal-green" :
+                      parsed.thesis_score >= 60 ? "text-foreground" :
+                      "text-terminal-red"
+                    }`}>
+                      Thesis: <span className="font-bold">{parsed.thesis_score}</span>
+                    </span>
+                  )}
+                  {parsed.conviction_score != null && (
+                    <span className={`tabular-nums ${
+                      parsed.conviction_score >= 70 ? "text-terminal-green" :
+                      parsed.conviction_score >= 50 ? "text-foreground" :
+                      "text-terminal-amber"
+                    }`}>
+                      Conviction: <span className="font-bold">{parsed.conviction_score}</span>
+                    </span>
+                  )}
+                  {parsed.valuation_score != null && (
+                    <span className={`tabular-nums ${
+                      parsed.valuation_score >= 80 ? "text-terminal-green" :
+                      parsed.valuation_score >= 60 ? "text-foreground" :
+                      parsed.valuation_score >= 40 ? "text-terminal-amber" :
+                      "text-terminal-red"
+                    }`}>
+                      Valuation: <span className="font-bold">{parsed.valuation_score}</span>
+                    </span>
                   )}
                 </div>
               )}

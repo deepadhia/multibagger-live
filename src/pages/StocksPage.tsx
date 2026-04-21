@@ -403,6 +403,7 @@ export default function StocksPage() {
                             <ActionableVerdictBadges
                               decision={snapCtx.verdict.decision}
                               convictionLevel={snapCtx.verdict.convictionLevel}
+                              positionSize={snapCtx.verdict.positionSize}
                             />
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>

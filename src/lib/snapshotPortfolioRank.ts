@@ -112,19 +112,34 @@ export function consolidatedPortfolioSortScore(snapshots: SnapshotRowLike[] | nu
 export type ActionableVerdictLite = {
   decision: string | null;
   convictionLevel: string | null;
+  positionSize: string | null;
 };
 
 export function actionableVerdictFromSnapshot(snap: SnapshotRowLike): ActionableVerdictLite {
   const raw = parseRawJson(snap.raw_ai_output);
+
+  // New V7 schema: decision block takes precedence.
+  const decisionBlock = raw?.decision;
+  if (decisionBlock && typeof decisionBlock === "object" && !Array.isArray(decisionBlock)) {
+    const d = decisionBlock as Record<string, unknown>;
+    const finalAction = typeof d.final_action === "string" ? d.final_action.trim() || null : null;
+    const positionSize = typeof d.position_size === "string" ? d.position_size.trim() || null : null;
+    const confidence = typeof d.decision_confidence === "string" ? d.decision_confidence.trim() || null : null;
+    if (finalAction) {
+      return { decision: finalAction, convictionLevel: confidence, positionSize };
+    }
+  }
+
+  // Fallback: old V5/V6 actionable_verdict block.
   const v = raw?.actionable_verdict;
   if (!v || typeof v !== "object" || Array.isArray(v)) {
-    return { decision: null, convictionLevel: null };
+    return { decision: null, convictionLevel: null, positionSize: null };
   }
   const o = v as Record<string, unknown>;
   const decision = typeof o.decision === "string" ? o.decision.trim() || null : null;
   const convictionLevel =
     typeof o.conviction_level === "string" ? o.conviction_level.trim() || null : null;
-  return { decision, convictionLevel };
+  return { decision, convictionLevel, positionSize: null };
 }
 
 export type LatestSnapshotQuarterContext = {

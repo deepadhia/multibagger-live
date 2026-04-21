@@ -37,6 +37,11 @@ export async function importGeminiResponseToDb({ stockId, quarter, payload }) {
       thesis_momentum: z.string().nullable().optional(),
       thesis_drift_status: z.string().nullable().optional(),
       confidence_score: z.number().int().min(0).max(100).nullable().optional(),
+      thesis_score: z.number().int().min(0).max(100).nullable().optional(),
+      valuation_score: z.number().int().min(0).max(100).nullable().optional(),
+      conviction_score: z.number().int().min(0).max(100).nullable().optional(),
+      action_decision: z.string().nullable().optional(),
+      position_size: z.string().nullable().optional(),
       promise_updates: z.array(geminiPromiseUpdateSchema).default([]),
       new_promises: z.array(geminiNewPromiseSchema).default([]),
       raw: z.unknown().optional(),
@@ -82,9 +87,9 @@ export async function importGeminiResponseToDb({ stockId, quarter, payload }) {
     // 1) Upsert quarterly snapshot
     await client.query(
       `INSERT INTO quarterly_snapshots
-        (stock_id, quarter, summary, dodged_questions, red_flags, metrics, raw_ai_output, thesis_status, thesis_status_reason)
+        (stock_id, quarter, summary, dodged_questions, red_flags, metrics, raw_ai_output, thesis_status, thesis_status_reason, thesis_score, valuation_score, conviction_score, final_action, position_size, scoring_version)
        VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (stock_id, quarter) DO UPDATE SET
          summary = EXCLUDED.summary,
          dodged_questions = EXCLUDED.dodged_questions,
@@ -92,7 +97,13 @@ export async function importGeminiResponseToDb({ stockId, quarter, payload }) {
          metrics = EXCLUDED.metrics,
          raw_ai_output = EXCLUDED.raw_ai_output,
          thesis_status = EXCLUDED.thesis_status,
-         thesis_status_reason = EXCLUDED.thesis_status_reason`,
+         thesis_status_reason = EXCLUDED.thesis_status_reason,
+         thesis_score = EXCLUDED.thesis_score,
+         valuation_score = EXCLUDED.valuation_score,
+         conviction_score = EXCLUDED.conviction_score,
+         final_action = EXCLUDED.final_action,
+         position_size = EXCLUDED.position_size,
+         scoring_version = EXCLUDED.scoring_version`,
       [
         stockId,
         quarter,
@@ -103,6 +114,12 @@ export async function importGeminiResponseToDb({ stockId, quarter, payload }) {
         rawAiOutputJson,
         validated.thesis_status ?? null,
         validated.thesis_status_reason ?? null,
+        validated.thesis_score ?? null,
+        validated.valuation_score ?? null,
+        validated.conviction_score ?? null,
+        validated.action_decision ?? null,
+        validated.position_size ?? null,
+        'V9',
       ],
     );
 
