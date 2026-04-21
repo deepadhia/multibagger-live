@@ -353,7 +353,13 @@ export function AddStockDialog() {
               onChange={(e) => setThesis(e.target.value)}
               className="bg-muted border-border font-mono"
               rows={3}
+              placeholder={`e.g. High-voltage electrical equipment and reactor scaling driven by grid modernisation and data centres. Primary metric: consolidated order backlog. Thesis holds as long as order inflow growth stays >15% and working capital days do not structurally deteriorate.`}
             />
+            <p className="text-[10px] text-muted-foreground font-mono mt-1 leading-relaxed">
+              State the <span className="text-foreground">primary growth driver</span>, the{" "}
+              <span className="text-foreground">key metric to track</span>, and the{" "}
+              <span className="text-foreground">condition that would break the thesis</span>.
+            </p>
           </div>
 
           <Collapsible className="rounded-md border border-border bg-muted/20">
@@ -376,7 +382,22 @@ export function AddStockDialog() {
                 value={trackingProfileJson}
                 onChange={(e) => setTrackingProfileJson(e.target.value)}
                 className="bg-background border-border font-mono text-xs min-h-[140px]"
-                placeholder={`{\n  "core_thesis": "…",\n  "tracking_directives": "…",\n  "metric_keys": ["revenue_growth", "opm"]\n}`}
+                placeholder={`{
+  "core_thesis": "High-voltage equipment scaling driven by grid modernisation and data centres",
+  "tracking_directives": "Track consolidated order backlog QoQ. Flag if order inflow growth <15% for 2 consecutive quarters or working capital days rise >90.",
+  "thesis_type": "order_book_growth",
+  "metric_keys": ["revenue_growth", "opm", "consolidated_order_backlog", "working_capital_days"],
+  "kill_switch_conditions": [
+    { "rule": "Order backlog declines for 2 consecutive quarters [HIGH]", "severity": "high" },
+    { "rule": "OPM drops below 12% without recoverable reason [MEDIUM]", "severity": "medium" }
+  ],
+  "add_on_conditions": [
+    { "rule": "Order inflow growth >20% with stable margins", "severity": "medium" }
+  ],
+  "leading_indicators": ["order_inflow_growth", "capacity_utilization", "working_capital_days"],
+  "review_frequency": "quarterly",
+  "active_tracking": true
+}`}
                 spellCheck={false}
               />
             </CollapsibleContent>
