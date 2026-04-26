@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useManagementPromises, useQuarterlySnapshots, useStockTrackingProfile } from "@/hooks/useStocks";
 import { decisionRulesFromProfile, getMetricKeysForPrompt } from "@/lib/trackingProfileConfig";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Check, Braces } from "lucide-react";
+import { Copy, Check, Braces, History } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Props {
   stock: {
@@ -30,7 +31,22 @@ function buildGeminiContext(
   }> | undefined,
   snapshots: unknown[] | undefined,
   trackingConfig: Record<string, unknown> | null,
+  limitToQuarter?: string | null,
 ) {
+  const allSnapshots = (snapshots || []) as any[];
+  
+  // If a limit is specified, exclude that quarter and any newer ones
+  const filteredSnapshots = limitToQuarter 
+    ? allSnapshots.filter(s => {
+        // Simple comparison: if it's the exact quarter being limited to, or newer, we might want to exclude it.
+        // Actually, the user says "copy till Q2", so if they select Q2, we include Q2 and older.
+        // We exclude anything that comes AFTER the selected quarter in the sorted list (snapshots are usually newest first).
+        const targetIndex = allSnapshots.findIndex(sn => sn.quarter === limitToQuarter);
+        const currentIndex = allSnapshots.findIndex(sn => sn.id === s.id);
+        return currentIndex >= targetIndex;
+      })
+    : allSnapshots;
+
   const pending = promises?.filter((p) => p.status === "pending") || [];
   const kept = promises?.filter((p) => p.status === "kept") || [];
   const broken = promises?.filter((p) => p.status === "broken") || [];
@@ -48,8 +64,8 @@ function buildGeminiContext(
       : "No resolved promises yet";
 
   const rollingSnapshotsArray = (() => {
-    if (!snapshots || snapshots.length === 0) return [];
-    return snapshots.slice(0, 4).map((s) => {
+    if (!filteredSnapshots || filteredSnapshots.length === 0) return [];
+    return filteredSnapshots.slice(0, 4).map((s) => {
       const snapAny = s as Record<string, unknown>;
       if (snapAny.raw_ai_output && typeof snapAny.raw_ai_output === "object") return snapAny.raw_ai_output;
       const prevMetrics = snapAny.metrics && typeof snapAny.metrics === "object" ? snapAny.metrics : {};
@@ -78,11 +94,34 @@ function buildGeminiContext(
   const metricKeys = getMetricKeysForPrompt(profile as Record<string, unknown> | null | undefined, stock.metric_keys);
 
   const metricsSchema = {
+    // CRITICAL TIER (Metadata Required)
+    primary_thesis_metric: { 
+      value: "", 
+      evidence: "", 
+      metric_name: primaryMetricLabel,
+      source: "transcript | screener | blended",
+      confidence: "high | medium | low",
+      period: "current_quarter | lagging_ttm"
+    },
+    ocf_to_ebitda: { 
+      value: "", 
+      evidence: "", 
+      source: "transcript | screener | blended", 
+      confidence: "high | medium | low",
+      period: "current_quarter | lagging_ttm"
+    },
+    debt_to_equity: { 
+      value: "", 
+      evidence: "", 
+      source: "transcript | screener | blended",
+      confidence: "high | medium | low",
+      period: "current_quarter | lagging_ttm"
+    },
+    // SECONDARY TIER (Lean - value/evidence only)
     revenue_growth: { value: "", evidence: "" },
     opm: { value: "", evidence: "" },
-    pat_growth: { value: "", evidence: "" },
-    primary_thesis_metric: { value: "", evidence: "", metric_name: "" },
-  } as Record<string, { value: string; evidence: string; metric_name?: string }>;
+    pat_growth: { value: "", evidence: "" }
+  } as Record<string, any>;
 
   for (const key of metricKeys) {
     if (!metricsSchema[key]) {
@@ -110,7 +149,6 @@ function buildGeminiContext(
     String(primaryMetricKey)
       .replace(/_/g, " ")
       .replace(/\b\w/g, (ch) => ch.toUpperCase());
-  metricsSchema.primary_thesis_metric.metric_name = primaryMetricLabel;
 
   const coreThesis =
     profile?.core_thesis ||
@@ -314,12 +352,13 @@ Credibility Score (kept vs broken promises so far): ${credibility}
     - no new risks added this quarter
     Otherwise → BUILD POSITION. NEVER ADD if execution_quality = "weak" or momentum = "decelerating."
 
-11. **MULTIBAGGER MODE RULE**
-    IF thesis_score ≥ 80 AND no HIGH severity kill switch triggered:
-    → DO NOT return CUT POSITION based on a single quarter of deterioration alone
-    → Downgrade path must follow: BUILD/ADD → WAIT AND WATCH → CUT (never skip a step)
-    → CUT is only permitted if deterioration persists for 2 consecutive quarters OR a HIGH kill switch fires
-    → Set thesis_monitoring.deterioration_quarters from rolling context; only allow CUT if ≥ 2
+11. **MULTIBAGGER MODE RULE (CONDITIONAL OVERRIDE)**
+    IF thesis_score ≥ 80:
+    → **PRECEDENCE:** A HIGH severity kill switch (Rule 2) ALWAYS overrides this rule and triggers an immediate CUT regardless of historical strength.
+    → Otherwise, DO NOT return CUT POSITION based on a single quarter of deterioration alone.
+    → Downgrade path must follow: BUILD/ADD → WAIT AND WATCH → CUT (never skip a step).
+    → CUT is only permitted if deterioration persists for 2 consecutive quarters OR a HIGH kill switch fires.
+    → Set thesis_monitoring.deterioration_quarters from rolling context; only allow CUT if ≥ 2.
 
     **LUMPY BUSINESS MODIFIER (sub-rule of Rule 11):**
     IF the business model is project-based, export-heavy, or capex-lumpy (e.g., EPC, defence, capital goods, commodity exports):
@@ -361,10 +400,62 @@ Credibility Score (kept vs broken promises so far): ${credibility}
     → reduce position_size by one level: full → half, half → starter
     → add "theme_concentration_risk" to decision_blockers
     → state the conflicting theme in rationale.risks
-    If theme overlap cannot be determined (no context provided):
-    → ONLY FLAG as "theme_concentration_risk: unverified — check portfolio before sizing"
-    → DO NOT change position_size
+    IF theme overlap cannot be determined (no context provided):
+    → DO NOT add to decision_blockers.
+    → DO NOT change position_size.
+    → ONLY add a note in rationale.why_this_action: "Portfolio check required: verify theme concentration (e.g. macro theme X) before sizing."
     ⚠️ Sector concentration is a portfolio-level failure mode, not a stock-level one. Never allow 3+ FULL positions in the same macro theme.
+
+═══════════════════════════════════════
+🌐 SOURCE-AWARE HYBRID INTELLIGENCE (V11)
+═══════════════════════════════════════
+
+17. **SOURCE PRIORITY (TRUTH LAYER)**
+    - Transcript / Concall data is the **PRIMARY TRUTH**.
+    - External data (Screener.in) is **SECONDARY** and supporting only.
+    - IF External data (Screener) shows strength but the Transcript indicates operational stress → **Trust the Transcript.**
+
+18. **DETERMINISTIC CONFIDENCE (STRICT)**
+    - confidence = **high** → direct, verbatim number from transcript.
+    - confidence = **medium** → screener-derived data (where allowed by Rule 20).
+    - confidence = **low** → inferred from management guidance or partial/vague mentions.
+
+19. **DYNAMIC CONFLICT PENALTY (STRICT)**
+    IF External data (Screener) contradicts the Transcript narrative or operational signals:
+    → YOU MUST trust the Transcript.
+    → Add "data_mismatch_risk" to decision_blockers.
+    → Reduce conviction_score by EXACTLY 10 points.
+
+20. **SCOPED AUGMENTATION (BANNED USES)**
+    - External data (Screener) is **RESTRICTED** to: Balance Sheet (Debt, Cash) and long-term OCF/EBITDA.
+    - It is **BANNED** for: Revenue Growth, Margins, and Segment Analysis (to avoid "Time Mismatch" bugs).
+    - Any metric filled using external data MUST be tagged as source: "screener".
+
+21. **DATA ALIGNMENT BOOST (STRICT)**
+    IF BOTH:
+    - Transcript-derived signals indicate strength in the primary metric or earnings quality
+    AND
+    - Screener-derived data (where allowed under Rule 20) confirms the same directional strength
+    THEN:
+    → Increase conviction_score by +5 (MAX once per evaluation).
+    → DO NOT apply if any HIGH severity kill switch is triggered.
+    → DO NOT apply if data_mismatch_risk is present for the same metric.
+    → Rule 21 applies ONLY to: primary_metric, ocf_to_ebitda, or balance sheet strength (debt/cash).
+
+22. **OWNERSHIP QUALITY (CONTEXT-AWARE)**
+    IF promoter_holding < 25%:
+    - IF strong institutional ownership AND no governance concerns:
+      → NO penalty. Add "institutionally_backed_structure" to rationale.
+    - ELSE:
+      → reduce conviction_score by 5–15. Add "ownership_structure_risk" to decision_blockers.
+    IF promoter_holding is declining consistently over 2+ quarters:
+    - IF selling is explained (e.g. block deal, PE exit, one-time restructuring):
+      → downgrade severity by one level. DO NOT apply full penalty.
+    - ELSE:
+      → add "promoter_selling_signal" to decision_blockers.
+      → reduce conviction_score by 5–10.
+    ⚠️ Promoter holding ALONE must NOT trigger a kill switch.
+    ⚠️ Ownership-related penalties must respect Rule 15 (no stacking if same root cause).
 
 ═══════════════════════════════════════
 🧩 SCORING FRAMEWORK
@@ -401,6 +492,7 @@ You MUST choose ONE final_action:
 - BUILD POSITION: Initiating or re-entering. Thesis strong, no kill switch, valuation acceptable. Prior thesis_score ≤ 75 OR fresh position.
 - ADD POSITION: Existing hold. ALL of: prior thesis > 75, current improving, execution accelerating, no new risks.
 - WAIT AND WATCH: Thesis intact but valuation high OR conviction low (< 60) OR signals mixed OR momentum decelerating.
+  → **DISAMBIGUATION:** State explicitly if this is "WAIT AND WATCH (Price)" (thesis strong, valuation high) or "WAIT AND WATCH (Execution)" (thesis unproven/weakening, waiting for data).
   → EXCEPTION: IF thesis_score ≥ 80 AND strong momentum (execution_signals ≥ 12): DO NOT default to WAIT AND WATCH if conviction < 60. Return BUILD POSITION with "starter" size instead.
 - CUT POSITION: Thesis broken OR kill switch triggered OR thesis_score < 60 (subject to Rule 11).
 
@@ -429,7 +521,8 @@ STEP 7: Apply Multibagger Mode override (Rule 11) — if thesis ≥ 80, block di
 STEP 8: Determine final_action using Action Framework above + Rules 10/11
 STEP 9a: Determine raw position_size using Sizing Rules — verify all 5 "full" conditions
 STEP 9b: Apply Portfolio Awareness (Rule 16) — downgrade size if theme concentration exists
-STEP 9c: Apply Penalty Normalization (Rule 15) — consolidate overlapping penalties before emitting final scores
+STEP 9c: Apply Data Alignment Boost (Rule 21) — add +5 conviction if sources align
+STEP 9d: Apply Penalty Normalization (Rule 15) — consolidate overlapping penalties before emitting final scores
 
 ═══════════════════════════════════════
 OUTPUT FORMAT (STRICT JSON — V10)
@@ -504,7 +597,7 @@ ${strictRuleCheckSchema}
     "position_size": "starter | half | full | none",
     "portfolio_weight_pct": 0,
     "decision_confidence": "HIGH | MEDIUM | LOW",
-    "decision_blockers": ["Use ONLY from: earnings_quality_risk | cycle_peak_risk | low_disclosure_risk | working_capital_risk | customer_concentration_risk | valuation_stretched | kill_switch_triggered | thesis_drift_negative | momentum_decelerating"]
+    "decision_blockers": ["Use ONLY from: earnings_quality_risk | cycle_peak_risk | low_disclosure_risk | working_capital_risk | customer_concentration_risk | theme_concentration_risk | data_mismatch_risk | ownership_structure_risk | promoter_selling_signal | valuation_stretched | kill_switch_triggered | thesis_drift_negative | momentum_decelerating"]
   },
   "rationale": {
     "thesis_summary": "1-2 sentence core thesis status",
@@ -548,6 +641,13 @@ ${strictRuleCheckSchema}
     "applicable": true,
     "status": "strong | moderate | weak | NA",
     "reason": "REQUIRED: State specific conversion or delivery metric."
+  },
+  "source_intelligence": {
+    "primary_source": "transcript",
+    "secondary_source": "screener | none",
+    "conflict_detected": false,
+    "alignment_boost_applied": false,
+    "source_notes": "Mention specific TTM vs Quarterly mismatches found"
   }
 }
 
@@ -556,7 +656,7 @@ ANTI-BIAS & ANTI-HALLUCINATION PROTOCOLS
 ═══════════════════════════════════════
 1. NEVER hallucinate numbers. If not explicitly in the transcript, set value = "NOT DISCLOSED" and log in dodged_questions_or_omissions.
 2. STRICT PROMISE IDs: Only use IDs from the PENDING PROMISE LEDGER. Zero invented UUIDs.
-3. SIGNAL INTELLIGENCE V9+: primary_metric_momentum (with qoq_values + consecutive_deceleration_quarters), thesis_dependency, execution_quality, earnings_quality, and thesis_monitoring are ALL REQUIRED.
+3. SIGNAL INTELLIGENCE V11+: primary_metric_momentum (with qoq_values + consecutive_deceleration_quarters), thesis_dependency, execution_quality, earnings_quality, source_intelligence, and thesis_monitoring are ALL REQUIRED.
 4. BE RUTHLESS: Strong execution → reward. Broken margins → punish. Missing data → reduce conviction, not reality.
 5. DO NOT reward absolute performance while ignoring direction. Falling growth rate = deteriorating, regardless of absolute level.
 6. Cash is reality. Accounting profit is opinion. Weak OCF must be stated explicitly in decision_blockers.
@@ -564,7 +664,8 @@ ANTI-BIAS & ANTI-HALLUCINATION PROTOCOLS
 8. A quarter with zero warnings, zero omissions, and zero red flags violates Rule 14 — add low_disclosure_risk automatically.
 9. Multibagger mode (Rule 11) is NOT a "stay bullish" escape. It only prevents a single-quarter panic cut. Two consecutive quarters of deterioration (three for lumpy businesses) overrides it.
 10. PENALTY NORMALIZATION (Rule 15) is mandatory. Before outputting scores, audit your penalties: did the same root cause generate multiple deductions? Consolidate — take the harshest single penalty, not the sum.
-11. PORTFOLIO AWARENESS (Rule 16): always flag theme_concentration_risk if the stock shares a macro theme with other known holdings. Default to flagging if unknown.`;
+11. PORTFOLIO AWARENESS (Rule 16): always flag theme_concentration_risk if the stock shares a macro theme with other known holdings. Default to rationale note if unknown.
+12. V11 HYBRID INTELLIGENCE: Rule 17-22 are non-negotiable. Mismatch = Penalty. Alignment = Boost. Ownership = Context-aware. Ensure dual-tier metrics schema is strictly followed.`;
 
   return { prompt, verificationPayload };
 }
@@ -575,15 +676,27 @@ export function CopyGeminiPrompt({ stock }: Props) {
   const { data: trackingConfig } = useStockTrackingProfile(stock.id);
   const { toast } = useToast();
   const [copiedKind, setCopiedKind] = useState<CopyKind>(null);
+  const [historyLimitQuarter, setHistoryLimitQuarter] = useState<string>("all");
+
+  const quarterOptions = useMemo(() => {
+    if (!snapshots || snapshots.length === 0) return [];
+    return snapshots.map((s: any) => s.quarter);
+  }, [snapshots]);
 
   const copyPrompt = async () => {
-    const { prompt } = buildGeminiContext(stock, promises, snapshots, (trackingConfig as Record<string, unknown> | null) ?? null);
+    const { prompt } = buildGeminiContext(
+      stock, 
+      promises, 
+      snapshots, 
+      (trackingConfig as Record<string, unknown> | null) ?? null,
+      historyLimitQuarter === "all" ? null : historyLimitQuarter
+    );
     try {
       await navigator.clipboard.writeText(prompt);
       setCopiedKind("prompt");
       toast({
         title: "Prompt copied",
-        description: `${stock.ticker} — full V9 prompt ready to paste into Gemini.`,
+        description: `${stock.ticker} — full V11 Hybrid Intelligence prompt ready to paste into Gemini.`,
       });
       setTimeout(() => setCopiedKind((k) => (k === "prompt" ? null : k)), 2000);
     } catch {
@@ -597,6 +710,7 @@ export function CopyGeminiPrompt({ stock }: Props) {
       promises,
       snapshots,
       (trackingConfig as Record<string, unknown> | null) ?? null,
+      historyLimitQuarter === "all" ? null : historyLimitQuarter
     );
     try {
       await navigator.clipboard.writeText(JSON.stringify(verificationPayload, null, 2));
@@ -612,8 +726,26 @@ export function CopyGeminiPrompt({ stock }: Props) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button variant="outline" size="sm" onClick={copyPrompt} className="font-mono text-xs">
+    <div className="flex flex-wrap items-center gap-3">
+      {quarterOptions.length > 0 && (
+        <div className="flex items-center gap-2 border border-border/50 rounded-md px-2 py-1 bg-muted/30">
+          <History className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">History up to:</span>
+          <Select value={historyLimitQuarter} onValueChange={setHistoryLimitQuarter}>
+            <SelectTrigger className="w-[110px] h-7 font-mono text-[10px] border-none bg-transparent focus:ring-0">
+              <SelectValue placeholder="All Quarters" />
+            </SelectTrigger>
+            <SelectContent className="bg-card border-border">
+              <SelectItem value="all" className="font-mono text-xs">All Quarters</SelectItem>
+              {quarterOptions.map(q => (
+                <SelectItem key={q} value={q} className="font-mono text-xs">{q}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={copyPrompt} className="font-mono text-xs">
         {copiedKind === "prompt" ? (
           <Check className="h-3 w-3 text-terminal-green" />
         ) : (

@@ -424,6 +424,24 @@ export function SnapshotsTab({ stockId }: Props) {
                     </div>
                   ) : null}
 
+                  {/* ═══ Source Intelligence ═══ */}
+                  {rawOutput?.source_intelligence && !isEditing && (
+                    <div className="flex flex-wrap gap-2">
+                      {rawOutput.source_intelligence.conflict_detected && (
+                        <Badge variant="outline" className="text-[10px] bg-terminal-red/10 border-terminal-red text-terminal-red animate-pulse">
+                          <AlertTriangle className="h-2.5 w-2.5 mr-1" />
+                          SOURCE CONFLICT
+                        </Badge>
+                      )}
+                      {rawOutput.source_intelligence.alignment_boost_applied && (
+                        <Badge variant="outline" className="text-[10px] bg-muted border-border text-muted-foreground/60 font-normal">
+                          <Check className="h-2.5 w-2.5 mr-1" />
+                          Source Alignment (+5)
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
                   {/* ═══ Metrics Grid ═══ */}
                   {Object.keys(metrics).length > 0 && !isEditing && (
                     <div>
@@ -433,31 +451,52 @@ export function SnapshotsTab({ stockId }: Props) {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                         {Object.entries(metrics).map(([key, val]) => {
                           const label = key.replace(/_/g, " ");
-                          // Handle nested { value, evidence } or flat string
                           const isNested = val && typeof val === "object" && "value" in (val as any);
-                          const displayValue = isNested ? (val as any).value : String(val);
-                          const evidence = isNested ? (val as any).evidence : null;
-                          // Fallback: extract parenthetical quote from flat string
+                          const vObj = isNested ? (val as any) : null;
+                          const displayValue = isNested ? vObj.value : String(val);
+                          const evidence = isNested ? vObj.evidence : null;
+                          const source = vObj?.source;
+                          const confidence = vObj?.confidence;
+                          const period = vObj?.period;
+
                           const flatStr = String(displayValue);
                           const parenIdx = flatStr.indexOf("(");
                           const cleanValue = parenIdx > 0 ? flatStr.slice(0, parenIdx).trim() : flatStr;
-                          const sourceQuote = evidence || (parenIdx > 0 ? flatStr.slice(parenIdx) : null);
+                          
+                          const metaItems = [];
+                          if (source) metaItems.push(`Source: ${source}`);
+                          if (confidence) metaItems.push(`Confidence: ${confidence}`);
+                          if (period) metaItems.push(`Period: ${period}`);
+                          if (evidence) metaItems.push(`Evidence: ${evidence}`);
+                          const hoverText = metaItems.join(" | ") || (parenIdx > 0 ? flatStr.slice(parenIdx) : null);
 
                           return (
                             <div
                               key={key}
-                              className="p-2.5 bg-muted/50 rounded border border-border/30 group"
-                              title={sourceQuote || undefined}
+                              className="p-2.5 bg-muted/50 rounded border border-border/30 group relative overflow-hidden"
+                              title={hoverText || undefined}
                             >
+                              {source === "screener" && (
+                                <div className="absolute top-0 right-0 w-1 h-full bg-sky-500/40" title="Source: Screener" />
+                              )}
                               <p className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">
                                 {label}
                               </p>
-                              <p className="font-mono text-xs font-semibold text-foreground truncate">
-                                {cleanValue}
-                              </p>
-                              {sourceQuote && (
-                                <p className="font-mono text-[8px] text-muted-foreground/60 truncate mt-0.5 hidden group-hover:block">
-                                  {sourceQuote}
+                              <div className="flex items-center gap-1.5">
+                                <p className="font-mono text-xs font-semibold text-foreground truncate">
+                                  {cleanValue}
+                                </p>
+                                {source && (
+                                  <span className={`text-[8px] px-1 rounded-sm uppercase font-bold ${
+                                    source === "transcript" ? "bg-terminal-green/10 text-terminal-green/70" : "bg-sky-500/10 text-sky-400/70"
+                                  }`}>
+                                    {source[0]}
+                                  </span>
+                                )}
+                              </div>
+                              {hoverText && (
+                                <p className="font-mono text-[8px] text-muted-foreground/60 truncate mt-1 hidden group-hover:block">
+                                  {hoverText}
                                 </p>
                               )}
                             </div>

@@ -32,7 +32,13 @@ interface GeminiV5Response {
     confidence_score: number;
     key_changes_vs_last_quarter?: string[];
   };
-  metrics: Record<string, { value: string; evidence: string }>;
+  metrics: Record<string, { 
+    value: string; 
+    evidence: string;
+    source?: string;
+    confidence?: string;
+    period?: string;
+  } | string>;
   signals?: {
     bullish?: string[];
     warnings?: string[];

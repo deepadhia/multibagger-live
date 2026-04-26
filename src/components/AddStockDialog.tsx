@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Loader2, Search, ChevronDown } from "lucide-react";
+import { Plus, Loader2, Search, ChevronDown, Copy } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -20,6 +20,25 @@ type SearchRow = {
   screener_slug: string;
   ticker_hint: string;
 };
+
+const SAMPLE_THESIS = `High-voltage electrical equipment and reactor scaling driven by grid modernisation and data centres. Primary metric: consolidated order backlog. Thesis holds as long as order inflow growth stays >15% and working capital days do not structurally deteriorate.`;
+
+const SAMPLE_TRACKING_JSON = `{
+  "core_thesis": "High-voltage equipment scaling driven by grid modernisation and data centres",
+  "tracking_directives": "Track consolidated order backlog QoQ. Flag if order inflow growth <15% for 2 consecutive quarters or working capital days rise >90.",
+  "thesis_type": "order_book_growth",
+  "metric_keys": ["revenue_growth", "opm", "consolidated_order_backlog", "working_capital_days"],
+  "kill_switch_conditions": [
+    { "rule": "Order backlog declines for 2 consecutive quarters [HIGH]", "severity": "high" },
+    { "rule": "OPM drops below 12% without recoverable reason [MEDIUM]", "severity": "medium" }
+  ],
+  "add_on_conditions": [
+    { "rule": "Order inflow growth >20% with stable margins", "severity": "medium" }
+  ],
+  "leading_indicators": ["order_inflow_growth", "capacity_utilization", "working_capital_days"],
+  "review_frequency": "quarterly",
+  "active_tracking": true
+}`;
 
 export function AddStockDialog() {
   const [open, setOpen] = useState(false);
@@ -347,13 +366,28 @@ export function AddStockDialog() {
             </div>
           </div>
           <div>
-            <Label className="font-mono text-xs">Investment thesis</Label>
+            <div className="flex items-center justify-between mb-1.5">
+              <Label className="font-mono text-xs">Investment thesis</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground hover:text-primary"
+                onClick={() => {
+                  navigator.clipboard.writeText(SAMPLE_THESIS);
+                  toast({ title: "Copied sample thesis", description: "You can now paste this into Gemini as an example." });
+                }}
+                title="Copy sample thesis"
+              >
+                <Copy className="h-3 w-3" />
+              </Button>
+            </div>
             <Textarea
               value={thesis}
               onChange={(e) => setThesis(e.target.value)}
               className="bg-muted border-border font-mono"
               rows={3}
-              placeholder={`e.g. High-voltage electrical equipment and reactor scaling driven by grid modernisation and data centres. Primary metric: consolidated order backlog. Thesis holds as long as order inflow growth stays >15% and working capital days do not structurally deteriorate.`}
+              placeholder={SAMPLE_THESIS}
             />
             <p className="text-[10px] text-muted-foreground font-mono mt-1 leading-relaxed">
               State the <span className="text-foreground">primary growth driver</span>, the{" "}
@@ -368,7 +402,23 @@ export function AddStockDialog() {
                 type="button"
                 className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left font-mono text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors [&[data-state=open]_svg]:rotate-180"
               >
-                <span>Master prompt JSON (optional)</span>
+                <div className="flex items-center gap-2">
+                  <span>Master prompt JSON (optional)</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 hover:text-primary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText(SAMPLE_TRACKING_JSON);
+                      toast({ title: "Copied sample JSON", description: "You can now paste this into Gemini as an example." });
+                    }}
+                    title="Copy sample JSON"
+                  >
+                    <Copy className="h-2.5 w-2.5" />
+                  </Button>
+                </div>
                 <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70 transition-transform duration-200" />
               </button>
             </CollapsibleTrigger>
