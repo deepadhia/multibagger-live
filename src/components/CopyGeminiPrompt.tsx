@@ -761,6 +761,7 @@ export function CopyGeminiPrompt({ stock }: Props) {
         )}
         <span className="ml-1">{copiedKind === "json" ? "Copied!" : "Copy JSON"}</span>
       </Button>
+      </div>
     </div>
   );
 }
