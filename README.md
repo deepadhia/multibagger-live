@@ -139,10 +139,15 @@ supabase secrets set SCREENER_SESSION_ID=<your_screener_session_cookie>
 supabase secrets set SCREENER_CSRF_TOKEN=<your_screener_csrf_token>
 ```
 
-#### How to get Screener.in credentials:
 1. Go to [screener.in](https://www.screener.in/) and log in
 2. Open browser DevTools → Application → Cookies
 3. Copy the values of `sessionid` and `csrftoken`
+
+#### 4.1. Real-Time Announcement Pipeline (Backend only)
+To enable the **Institution-Grade** corporate announcement scanner:
+1.  **NVIDIA NIM**: Set `NVIDIA_API_KEY` for Llama 3.1 classification.
+2.  **Telegram**: Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` for real-time alerts.
+3.  **Supabase**: The scanner uses `DATABASE_URL` (Direct PG connection) for high-performance ingestion.
 
 ### 5. Serve Edge Functions Locally
 
@@ -187,12 +192,10 @@ The app will be available at `http://localhost:5173`.
 
 ## Key Features
 
-- **Auto-import on stock add**: Price + financials fetched automatically
-- **3Y price backfill**: Historical daily prices from Yahoo Finance
-- **Earnings call analysis**: Paste transcripts → AI extracts signals, promises, thesis drift
-- **Multibagger signal detection**: Automated scoring based on financials, shareholding, management credibility
-- **Thesis tracking**: Track investment thesis drift across quarters
-- **Sector indices**: Nifty sector performance comparison
+- **Dual-Exchange Announcement Scanner**: Integrated real-time ingestion from **BSE** and **NSE** with automated "Merge Model" deduplication.
+- **Institution-Grade AI Classification**: Uses Llama 3.1 (via NVIDIA NIM) to extract materiality data (Order values, Capex, M&A) and strategic "Deep Dive" indicators.
+- **Real-Time Telegram Alerts**: High-signal, structured notifications delivered to your phone for critical corporate actions.
+- **Automatic Result Date Sync**: Detects upcoming financial result dates in filings and automatically updates the portfolio countdown.
 - **Announcements**: On each stock’s detail page, an **Announcements** tab lists downloaded filings (earnings, concall transcripts, investor presentations) by quarter and type with **View** links. Use **Download filings** to fetch from NSE & Screener.
 - **Google Drive upload** (optional): Upload announcements to a Drive folder in a structured layout. See [docs/GOOGLE_DRIVE_SETUP.md](docs/GOOGLE_DRIVE_SETUP.md) for creating a service account and API key.
 
@@ -215,6 +218,7 @@ The platform now operates on a sophisticated **Hybrid Intelligence** decision en
 - **Ownership Context**: Advanced evaluation of low-promoter structures with institutional backing (avoiding false-negative penalties).
 - **Promoter Selling Trends**: Automated detection and penalization of consistent distribution trends over multiple quarters.
 - **Explained Cooldown**: Intelligent handling of one-time explained selling events (block deals, PE exits).
+- **Event-Driven Intelligence**: Real-time corporate action ingestion (BSE/NSE) that updates conviction in between quarterly reports.
 
 ### 4. V10 Legacy Features
 - **Multibagger Mode**: Protects high-conviction winners from premature exits.
@@ -239,6 +243,7 @@ All tables have RLS enabled. Migrations in `supabase/migrations/` are applied au
 | `management_promises` | Tracked management commitments |
 | `bulk_deals` / `insider_trades` | Deal activity |
 | `sector_indices` | Nifty sector index prices |
+| `corporate_announcements` | AI-classified real-time filings (BSE/NSE) |
 
 ## Useful Commands
 

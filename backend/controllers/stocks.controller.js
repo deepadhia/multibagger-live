@@ -74,3 +74,24 @@ export async function resetAllJsonOutputsHandler(_req, res) {
   }
 }
 
+/**
+ * POST /api/stocks/scan-announcements
+ * Triggers the corporate announcement scanner.
+ */
+import { scan } from "../scripts/scan-announcements.js";
+export async function scanAnnouncementsHandler(_req, res) {
+  try {
+    // Run scan in background or wait for it? 
+    // Usually these take ~1-2 mins for first run, but subsequent ones are fast.
+    // We'll wait for it so the UI can show completion.
+    await scan();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("scan-announcements error:", err);
+    res.status(500).json({
+      ok: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+  }
+}
+

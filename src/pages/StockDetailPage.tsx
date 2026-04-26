@@ -592,7 +592,7 @@ export default function StockDetailPage() {
           <InvestmentThesisEditor stockId={stock.id} thesis={stock.investment_thesis} />
           <MasterPromptEditor stockId={stock.id} trackingDirectives={stock.tracking_directives} metricKeys={stock.metric_keys} />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] gap-4">
           {stock.buy_price && (
             <Card className="p-4 bg-card border-border card-glow flex flex-col items-center justify-center min-w-[120px]">
               <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Buy Price</p>
@@ -604,6 +604,26 @@ export default function StockDetailPage() {
               )}
             </Card>
           )}
+          <Card className="p-4 bg-card border-border card-glow flex flex-col items-center justify-center min-w-[140px]">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-1">BSE Scrip Code</p>
+            <Input
+              className="bg-transparent border border-border rounded px-2 py-1 font-mono text-xs text-foreground w-[100px] text-center"
+              defaultValue={stock.bse_scrip_code || ""}
+              placeholder="5XXXXX"
+              maxLength={6}
+              onBlur={async (e) => {
+                const val = e.target.value.trim() || null;
+                if (val === stock.bse_scrip_code) return;
+                const { error } = await supabase.from("stocks").update({ bse_scrip_code: val }).eq("id", stock.id);
+                if (error) {
+                  toast({ title: "Update failed", description: error.message, variant: "destructive" });
+                } else {
+                  queryClient.invalidateQueries({ queryKey: ["stock", id] });
+                  toast({ title: "BSE Scrip Code updated", description: val ? `Set to ${val}` : "Cleared" });
+                }
+              }}
+            />
+          </Card>
           <Card className="p-4 bg-card border-border card-glow flex flex-col items-center justify-center min-w-[140px]">
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Next Results</p>
             <input

@@ -52,6 +52,7 @@ export function AddStockDialog() {
   const [category, setCategory] = useState("Watchlist");
   const [buyPrice, setBuyPrice] = useState("");
   const [thesis, setThesis] = useState("");
+  const [bseScripCode, setBseScripCode] = useState("");
   const [trackingProfileJson, setTrackingProfileJson] = useState("");
   const [enriching, setEnriching] = useState(false);
 
@@ -86,6 +87,7 @@ export function AddStockDialog() {
     setCategory("Watchlist");
     setBuyPrice("");
     setThesis("");
+    setBseScripCode("");
     setTrackingProfileJson("");
     setEnriching(false);
   }, []);
@@ -111,6 +113,10 @@ export function AddStockDialog() {
       if (d.ticker) setTicker(d.ticker);
       if (d.company_name) setCompanyName(d.company_name);
       if (d.sector) setSector(d.sector);
+      // If the screener slug is numeric, it's a BSE scrip code
+      if (/^\d{6}$/.test(row.screener_slug)) {
+        setBseScripCode(row.screener_slug);
+      }
     } catch {
       /* keep search row values */
     } finally {
@@ -161,6 +167,7 @@ export function AddStockDialog() {
       buy_price: buyPrice ? Number(buyPrice) : null,
       investment_thesis: thesis.trim() || null,
       screener_slug: slug,
+      bse_scrip_code: bseScripCode.trim() || null,
     }).select().single();
 
     if (error || !inserted) {
@@ -356,14 +363,24 @@ export function AddStockDialog() {
               />
             </div>
             <div>
-              <Label className="font-mono text-xs">Screener slug</Label>
+              <Label className="font-mono text-xs">BSE Scrip Code (6-digit)</Label>
               <Input
-                value={screenerSlug}
-                onChange={(e) => setScreenerSlug(e.target.value.toUpperCase())}
-                placeholder="Usually same as ticker"
-                className="bg-muted border-border font-mono uppercase"
+                value={bseScripCode}
+                onChange={(e) => setBseScripCode(e.target.value)}
+                placeholder="e.g. 505700"
+                className="bg-muted border-border font-mono"
+                maxLength={6}
               />
             </div>
+          </div>
+          <div>
+            <Label className="font-mono text-xs">Screener slug</Label>
+            <Input
+              value={screenerSlug}
+              onChange={(e) => setScreenerSlug(e.target.value.toUpperCase())}
+              placeholder="Usually same as ticker"
+              className="bg-muted border-border font-mono uppercase"
+            />
           </div>
           <div>
             <div className="flex items-center justify-between mb-1.5">

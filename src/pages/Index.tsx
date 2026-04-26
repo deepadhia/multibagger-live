@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMemo, useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/apiFetch";
 import {
   BarChart3, TrendingUp, TrendingDown, FileText, Target, Activity,
   ArrowUpRight, ArrowDownRight, RefreshCw, Loader2, Zap, CalendarClock,
@@ -106,6 +107,22 @@ const Index = () => {
   const [orderAlerts, setOrderAlerts] = useState<Array<{ stock: any; title: string; date: string; url: string }>>([]);
   const [transcriptAlerts, setTranscriptAlerts] = useState<Array<{ stock: any; title: string; date: string; url: string; type: string; quarter: string }>>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const [scanning, setScanning] = useState(false);
+
+  const handleScanAnnouncements = async () => {
+    setScanning(true);
+    try {
+      const res = await apiFetch("/api/stocks/scan-announcements", { method: "POST" });
+      if (!res.ok) throw new Error("Scan failed");
+      toast({ title: "Scan complete", description: "Checked all stocks for new announcements." });
+      // Refresh local list if needed
+      fetchOrderAlerts();
+    } catch (err: any) {
+      toast({ title: "Scan failed", description: err.message, variant: "destructive" });
+    } finally {
+      setScanning(false);
+    }
+  };
 
   // Fetch new order announcements + transcript links for all stocks
   const fetchOrderAlerts = async () => {
@@ -421,16 +438,28 @@ const Index = () => {
               <Package className="h-4 w-4 text-terminal-green" />
               <h3 className="font-mono text-xs uppercase tracking-wider text-muted-foreground">New Order Wins</h3>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={fetchOrderAlerts}
-              disabled={loadingOrders}
-              className="h-6 px-2 text-[10px] font-mono"
-            >
-              {loadingOrders ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-              {orderAlerts.length === 0 ? "Scan All Stocks" : "Refresh"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleScanAnnouncements}
+                disabled={scanning}
+                className="h-6 px-2 text-[10px] font-mono border-terminal-green/40 hover:bg-terminal-green/10"
+              >
+                {scanning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1 text-terminal-green" />}
+                Trigger Global Scan
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={fetchOrderAlerts}
+                disabled={loadingOrders}
+                className="h-6 px-2 text-[10px] font-mono"
+              >
+                {loadingOrders ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                {orderAlerts.length === 0 ? "Quick Refresh" : "Refresh"}
+              </Button>
+            </div>
           </div>
           {orderAlerts.length === 0 && !loadingOrders && (
             <p className="text-xs text-muted-foreground italic">
@@ -797,16 +826,31 @@ const Index = () => {
         </Card>
 
         {/* ── QUICK ACTIONS ── */}
-        <div className="flex gap-3">
-          <button onClick={() => navigate("/stocks")} className="px-4 py-2 bg-muted hover:bg-muted/80 rounded-md font-mono text-sm text-foreground border border-border transition-colors">
-            <Activity className="inline h-4 w-4 mr-2" />Manage Stocks
-          </button>
-          <button onClick={() => navigate("/signals")} className="px-4 py-2 bg-primary/10 hover:bg-primary/20 rounded-md font-mono text-sm text-primary border border-primary/20 transition-colors">
-            <Zap className="inline h-4 w-4 mr-2" />All Signals
-          </button>
-          <button onClick={() => navigate("/transcripts")} className="px-4 py-2 bg-muted hover:bg-muted/80 rounded-md font-mono text-sm text-foreground border border-border transition-colors">
-            <FileText className="inline h-4 w-4 mr-2" />Upload Transcript
-          </button>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            className="font-mono text-xs h-10 gap-2 border-primary/30 hover:bg-primary/10"
+            onClick={handleScanAnnouncements}
+            disabled={scanning}
+          >
+            {scanning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Activity className="h-4 w-4" />}
+            Scan Announcements (Manual)
+          </Button>
+          <Button variant="outline" className="font-mono text-xs h-10 gap-2 border-border"
+            onClick={() => navigate("/add-stock")}>
+            <TrendingUp className="h-4 w-4" />
+            Add New Stock
+          </Button>
+          <Button variant="outline" className="font-mono text-xs h-10 gap-2 border-border"
+            onClick={() => navigate("/stocks")}>
+            <Package className="h-4 w-4" />
+            Manage Stocks
+          </Button>
+          <Button variant="outline" className="font-mono text-xs h-10 gap-2 border-border"
+            onClick={() => navigate("/transcripts")}>
+            <FileText className="h-4 w-4" />
+            Upload Transcript
+          </Button>
         </div>
       </div>
     </DashboardLayout>

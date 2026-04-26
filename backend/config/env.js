@@ -16,6 +16,13 @@ export const PORT = Number(process.env.PORT || 4000);
 /** Required for admin login JWT signing (set in .env.local, e.g. openssl rand -hex 32). */
 export const JWT_SECRET = (process.env.JWT_SECRET || "").trim();
 
+/** NVIDIA NIM (Geforce Now) API Key */
+export const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY || "";
+
+/** Telegram Bot Token and Destination Chat ID */
+export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+export const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || "";
+
 /** Supabase project URL and anon key for proxying Edge Functions (fetch-price, fetch-financials). */
 export const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 export const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
