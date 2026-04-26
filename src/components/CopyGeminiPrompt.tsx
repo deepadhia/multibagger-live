@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useManagementPromises, useQuarterlySnapshots, useStockTrackingProfile } from "@/hooks/useStocks";
 import { decisionRulesFromProfile, getMetricKeysForPrompt } from "@/lib/trackingProfileConfig";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Check, Braces, History } from "lucide-react";
+import { Copy, Check, Braces, History, Download } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Props {
@@ -228,6 +228,8 @@ function buildGeminiContext(
       add_conditions: decisionRules.add_conditions,
     },
     stock_tracking_profile_config: profile ?? null,
+    system_version: "v11",
+    previous_decision: (rollingSnapshotsArray[0] as any)?.actionable_verdict?.decision || "INITIAL_EVALUATION",
   };
 
   const prompt = `**System Role:** You are a **Lead Indian Equity Research Analyst**.
@@ -597,6 +599,9 @@ ${strictRuleCheckSchema}
     "position_size": "starter | half | full | none",
     "portfolio_weight_pct": 0,
     "decision_confidence": "HIGH | MEDIUM | LOW",
+    "version": "v11",
+    "previous_decision": "${rollingSnapshotsArray[0]?.actionable_verdict?.decision || "INITIAL_EVALUATION"}",
+    "decision_change": "e.g. WAIT → CUT | STABLE | NEW_POSITION",
     "decision_blockers": ["Use ONLY from: earnings_quality_risk | cycle_peak_risk | low_disclosure_risk | working_capital_risk | customer_concentration_risk | theme_concentration_risk | data_mismatch_risk | ownership_structure_risk | promoter_selling_signal | valuation_stretched | kill_switch_triggered | thesis_drift_negative | momentum_decelerating"]
   },
   "rationale": {
@@ -725,6 +730,26 @@ export function CopyGeminiPrompt({ stock }: Props) {
     }
   };
 
+  const downloadArchive = () => {
+    if (!snapshots || snapshots.length === 0) {
+      toast({ title: "No snapshots", description: "Nothing to archive for this stock." });
+      return;
+    }
+    const blob = new Blob([JSON.stringify(snapshots, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${stock.ticker}_snapshots_archive_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast({
+      title: "Archive downloaded",
+      description: `Saved ${snapshots.length} snapshots for ${stock.ticker} to JSON for local storage.`,
+    });
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-3">
       {quarterOptions.length > 0 && (
@@ -760,6 +785,9 @@ export function CopyGeminiPrompt({ stock }: Props) {
           <Braces className="h-3 w-3" />
         )}
         <span className="ml-1">{copiedKind === "json" ? "Copied!" : "Copy JSON"}</span>
+      </Button>
+      <Button variant="ghost" size="sm" onClick={downloadArchive} className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" title="Download Snapshots Archive (JSON)">
+        <Download className="h-3.5 w-3.5" />
       </Button>
       </div>
     </div>
