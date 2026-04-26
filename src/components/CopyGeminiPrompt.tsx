@@ -93,6 +93,20 @@ function buildGeminiContext(
 
   const metricKeys = getMetricKeysForPrompt(profile as Record<string, unknown> | null | undefined, stock.metric_keys);
 
+  const primaryMetricKey =
+    (profile && typeof profile.primary_thesis_metric === "object"
+      ? (profile.primary_thesis_metric as Record<string, unknown>).key
+      : null) ||
+    metricKeys[0] ||
+    "primary_thesis_metric";
+  const primaryMetricLabel =
+    (profile && typeof profile.primary_thesis_metric === "object"
+      ? String((profile.primary_thesis_metric as Record<string, unknown>).label || "")
+      : "") ||
+    String(primaryMetricKey)
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+
   const metricsSchema = {
     // CRITICAL TIER (Metadata Required)
     primary_thesis_metric: { 
@@ -135,20 +149,6 @@ function buildGeminiContext(
           .map((k) => k.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase()))
           .join(", ")
       : "Revenue growth, Operating margin, PAT growth";
-
-  const primaryMetricKey =
-    (profile && typeof profile.primary_thesis_metric === "object"
-      ? (profile.primary_thesis_metric as Record<string, unknown>).key
-      : null) ||
-    metricKeys[0] ||
-    "primary_thesis_metric";
-  const primaryMetricLabel =
-    (profile && typeof profile.primary_thesis_metric === "object"
-      ? String((profile.primary_thesis_metric as Record<string, unknown>).label || "")
-      : "") ||
-    String(primaryMetricKey)
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (ch) => ch.toUpperCase());
 
   const coreThesis =
     profile?.core_thesis ||
