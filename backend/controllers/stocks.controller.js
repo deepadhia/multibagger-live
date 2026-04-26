@@ -81,11 +81,14 @@ export async function resetAllJsonOutputsHandler(_req, res) {
 import { scan } from "../scripts/scan-announcements.js";
 export async function scanAnnouncementsHandler(_req, res) {
   try {
-    // Run scan in background or wait for it? 
-    // Usually these take ~1-2 mins for first run, but subsequent ones are fast.
-    // We'll wait for it so the UI can show completion.
-    await scan();
-    res.json({ ok: true });
+    // Run scan in background to avoid Render/LoadBalancer timeouts (usually 30s)
+    // The first run (30-day catch-up) can take minutes.
+    scan().catch(err => console.error("Background scan error:", err));
+    
+    res.json({ 
+      ok: true, 
+      message: "Scan initiated in background. Check Telegram for alerts." 
+    });
   } catch (err) {
     console.error("scan-announcements error:", err);
     res.status(500).json({

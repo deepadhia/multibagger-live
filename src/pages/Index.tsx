@@ -114,7 +114,7 @@ const Index = () => {
     try {
       const res = await apiFetch("/api/stocks/scan-announcements", { method: "POST" });
       if (!res.ok) throw new Error("Scan failed");
-      toast({ title: "Scan complete", description: "Checked all stocks for new announcements." });
+      toast({ title: "Scan initiated", description: "The scanner is now running in the background. Check Telegram for new alerts." });
       // Refresh local list if needed
       fetchOrderAlerts();
     } catch (err: any) {
