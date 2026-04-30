@@ -1,0 +1,86 @@
+name: 📢 Corporate Announcement Scanner
+
+# ─── Triggers ────────────────────────────────────────────────────────────────
+# Runs 4× per weekday covering full NSE/BSE market hours (9:00 AM – 3:30 PM IST)
+# All times in UTC (IST = UTC + 5:30)
+on:
+  schedule:
+    - cron: '30 3 * * 1-5'   # 09:00 AM IST — Pre-open / Opening bell
+    - cron: '30 5 * * 1-5'   # 11:00 AM IST — Mid-morning sweep
+    - cron: '0 8 * * 1-5'    # 01:30 PM IST — Post-lunch sweep
+    - cron: '0 10 * * 1-5'   # 03:30 PM IST — Market close sweep
+
+  # Manual trigger — useful for testing or on-demand runs outside hours
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (scan but skip Telegram alerts)'
+        type: boolean
+        default: false
+      notify_start:
+        description: 'Send start notification to Telegram'
+        type: boolean
+        default: false
+
+# ─── Concurrency ──────────────────────────────────────────────────────────────
+# Prevent overlapping scans — if a new run starts while one is in progress,
+# cancel the older one rather than queuing (avoids duplicate alert storms).
+concurrency:
+  group: scan-announcements
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Scan Corporate Announcements
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Node.js 20 (required for ESM + native fetch) ─────────────
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ── 3. Install dependencies ────────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci --omit=dev --ignore-scripts
+        # --omit=dev: skip devDeps (vite, typescript, etc.) — scanner doesn't need them
+        # --ignore-scripts: skip postinstall hooks for speed
+
+      # ── 4. Run the scanner ─────────────────────────────────────────────────
+      - name: Run announcement scanner
+        env:
+          DATABASE_URL:        ${{ secrets.DATABASE_URL }}
+          JWT_SECRET:          ${{ secrets.JWT_SECRET }}
+          NVIDIA_API_KEY:      ${{ secrets.NVIDIA_API_KEY }}
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Pass through Actions context for richer Telegram messages
+          GITHUB_ACTIONS:      'true'
+          DRY_RUN:             ${{ inputs.dry_run || 'false' }}
+          NOTIFY_START:        ${{ inputs.notify_start || 'false' }}
+          WORKFLOW_RUN_URL:    ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node backend/scripts/scan-announcements-action.js
+
+      # ── 5. Report failure to Telegram ─────────────────────────────────────
+      # This step only runs if step 4 fails, so you know when the scanner crashes.
+      - name: Notify scanner failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          WORKFLOW_RUN_URL:    ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"chat_id\": \"${TELEGRAM_CHAT_ID}\",
+              \"text\": \"🔴 *Scanner FAILED*\n\nThe announcement scanner workflow crashed.\n\n[View Run Logs →](${WORKFLOW_RUN_URL})\",
+              \"parse_mode\": \"Markdown\"
+            }"

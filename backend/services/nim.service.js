@@ -14,31 +14,53 @@ const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
  * @param {string} title
  * @returns {Promise<object>}
  */
-export async function classifyAnnouncementWithNim(ticker, announcementText, title) {
+export async function classifyAnnouncementWithNim(ticker, announcementText, title, investmentThesis = null) {
   if (!NVIDIA_API_KEY) {
     throw new Error("NVIDIA_API_KEY not configured.");
   }
 
+  const thesisSection = investmentThesis 
+    ? `── Investment Thesis (Context) ──\n${investmentThesis}\n`
+    : "";
+
   const prompt = `
-    Analyze this Indian stock market corporate announcement and provide a structured classification.
+    You are a sharp Indian equity analyst. Analyze this BSE/NSE corporate announcement and return a detailed, investor-grade classification.
     
     Ticker: ${ticker}
-    Title: ${title}
-    
-    Materiality Rules:
-    - HIGH Priority: Large orders (>10% revenue), structural changes (M&A, demergers), management/auditor exits, capex (>20% net worth), or negative regulatory actions.
-    - MEDIUM Priority: Dividend declarations, board meeting calls, rating changes, or medium-sized orders.
-    - LOW Priority: Routine compliance, share certificate loss, or duplicate filings.
+    Announcement Title: ${title}
 
-    Return ONLY a valid JSON object with these fields:
+    ${thesisSection}
+
+    ── Task ──
+    Evaluate if this announcement reinforces or breaks the Investment Thesis provided. 
+    If no thesis is provided, use general high-quality investing principles.
+
+    - If the news significantly advances or protects the investment thesis, it is POSITIVE.
+    - If it introduces a structural risk or invalidates a core thesis assumption, it is NEGATIVE.
+    - If it is routine compliance or minor news with no thesis impact, it is NEUTRAL.
+    - Be decisive. Only use NEUTRAL if there is truly no impact on the thesis.
+
+    ── Priority Rules ──
+    HIGH: Large orders (>10% of annual revenue), M&A / demergers / restructuring, management/auditor exits, capex >20% net worth, credit downgrades, regulatory actions (fines, bans, audits), Product Approvals (PESO, FDA, etc.), Patents, Licenses, Large contract wins, fraud/NCLT.
+    MEDIUM: Dividends, board meeting notices, credit rating reaffirmations, allotments, medium-sized orders, general business updates.
+    LOW: Routine compliance filings, share certificate loss, voting results, AGM notices, window closure notices, newspaper publications.
+
+    ── Output Rules ──
+    - "summary": Write 2-3 sentences. Sentence 1: What happened (factual). Sentence 2: Business context & Thesis Alignment (how this relates to the company's core thesis). Sentence 3: Investor implication (what should an investor think/do).
+    - "key_data": Extract ALL specific numbers — order value (₹Cr), acquisition cost, capex outlay, revenue %, deal tenure, capacity (MW/MT). If none, write "No specific figures disclosed."
+    - "deep_dive_indicator": Name the precise investment thesis risk or opportunity. e.g. "Order backlog now ~3.2x FY25 revenue — execution risk is the key variable", or "Auditor exit raises governance concern — check if this is second change in 3 years".
+    - "result_date": YYYY-MM-DD if a board meeting for results is announced. Otherwise null.
+    - "is_earnings_release": true only if this is the actual Q-results announcement (not just a board meeting notice).
+
+    Return ONLY a valid JSON object:
     {
       "priority": "HIGH" | "MEDIUM" | "LOW",
       "impact": "POSITIVE" | "NEGATIVE" | "NEUTRAL",
       "confidence": "HIGH" | "LOW",
-      "summary": "A 1-sentence punchy summary of what happened.",
-      "key_data": "Extract specific numbers like order value, acquisition cost, or capex amount. If none, leave empty.",
-      "deep_dive_indicator": "Why should the investor dig deep? (e.g. 'Structural change in margins', 'Order backlog reaching 3x revenue', 'Governance red flag').",
-      "result_date": "If this announcement declares the date of next financial results, provide it in YYYY-MM-DD. Otherwise null.",
+      "summary": "2-3 sentence investor-grade summary with thesis context.",
+      "key_data": "All specific figures and numbers extracted.",
+      "deep_dive_indicator": "Precise thesis risk/opportunity with context.",
+      "result_date": "YYYY-MM-DD or null",
       "is_earnings_release": true | false
     }
 
@@ -46,44 +68,58 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     ${announcementText}
   `;
 
-  const response = await fetch(NIM_BASE_URL, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${NVIDIA_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "meta/llama-3.1-8b-instruct",
-      messages: [
-        {
-          role: "system",
-          content: "You are a financial analyst. Classify corporate announcements strictly.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      temperature: 0.2,
-      max_tokens: 400,
-      response_format: { type: "json_object" },
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    console.error("NVIDIA NIM API error:", errorData);
-    throw new Error(`NVIDIA NIM API error: ${errorData.message || response.statusText}`);
-  }
-
-  const data = await response.json();
-  const content = data.choices[0].message.content;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout (NIM can be slow)
 
   try {
-    const cleanJson = content.replace(/```json\n?/, "").replace(/\n?```/, "").trim();
-    return JSON.parse(cleanJson);
+    const response = await fetch(NIM_BASE_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${NVIDIA_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "meta/llama-3.1-8b-instruct",
+        messages: [
+          {
+            role: "system",
+            content: "You are a financial analyst. Classify corporate announcements strictly.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 700,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error("[AI ERROR] NVIDIA NIM API failed:", errorData);
+      throw new Error(`NVIDIA NIM API error: ${errorData.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+
+    try {
+      const cleanJson = content.replace(/```json\n?/, "").replace(/\n?```/, "").trim();
+      return JSON.parse(cleanJson);
+    } catch (err) {
+      console.error("Failed to parse NIM response as JSON:", content);
+      throw new Error("AI output was not valid JSON.");
+    }
   } catch (err) {
-    console.error("Failed to parse NIM response as JSON:", content);
-    throw new Error("AI output was not valid JSON.");
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      throw new Error("NVIDIA NIM API request timed out (90s)");
+    }
+    throw err;
   }
 }

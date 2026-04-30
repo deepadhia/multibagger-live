@@ -11,17 +11,20 @@ const HIGH_KEYWORDS = [
   "margin", "ebitda", "profit warning",
   "delay", "default", "downgrade",
   "resignation", "auditor resignation",
-  "fraud", "investigation",
-  "insolvency", "nclt"
+  "fraud", "investigation", "raid", "search", "seizure", "income tax", "it department", "enforcement directorate",
+  "news verification", "clarification regarding news", "response to news",
+  "insolvency", "nclt",
+  "approval", "permission", "peso", "cylinder", "hydrogen", "allotment", "award", "license", "regulatory", "mou", "partnership", "jv", "joint venture", "secures", "secured", "received", "receipt", "patent", "commercial production", "commissioning", "environmental clearance", "ec"
 ];
 
 const LOW_KEYWORDS = [
   "loss of share certificate", "duplicate certificate",
-  "intimation", "closure of trading window",
+  "closure of trading window",
   "compliance certificate",
   "regulation 30", "regulation 39",
   "voting results", "scrutinizer report",
-  "agm notice", "postal ballot"
+  "agm notice", "postal ballot",
+  "newspaper publication", "newspaper advertisement", "intimation of closure", "extracts of", "statement of deviation"
 ];
 
 const MEDIUM_KEYWORDS = [
@@ -29,7 +32,8 @@ const MEDIUM_KEYWORDS = [
   "board meeting", "committee meeting",
   "credit rating", "reaffirmation",
   "investor meeting", "analyst call", "presentation",
-  "allotment of shares", "esop"
+  "allotment of shares", "esop",
+  "update", "general update", "intimation"
 ];
 
 /**
@@ -93,19 +97,30 @@ export async function fetchBseAnnouncements(scripCode) {
 }
 
 /**
- * Fetches NSE session cookies.
+ * Fetches NSE session cookies (best-effort — cloud IPs may get 403 on homepage).
+ * Returns empty string on failure so the API call is still attempted without cookies.
  */
 let nseCookies = "";
 async function getNseCookies() {
   if (nseCookies) return nseCookies;
-  const res = await fetch("https://www.nseindia.com/", {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    },
-  });
-  const setCookie = res.headers.get("set-cookie");
-  if (setCookie) {
-    nseCookies = setCookie.split(";")[0];
+  try {
+    const res = await fetch("https://www.nseindia.com/", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+    if (res.ok || res.status === 200) {
+      const setCookie = res.headers.get("set-cookie");
+      if (setCookie) {
+        nseCookies = setCookie.split(";")[0];
+      }
+    } else {
+      console.warn(`[NSE] Homepage returned ${res.status} — proceeding without cookies (cloud IP likely).`);
+    }
+  } catch (err) {
+    console.warn(`[NSE] Cookie fetch failed: ${err.message} — proceeding without cookies.`);
   }
   return nseCookies;
 }
@@ -151,7 +166,9 @@ export async function fetchNseAnnouncements(symbol) {
       NEWS_ID: ann.seq_id || ann.desc, 
       NEWSSUB: ann.desc,
       DT_TM: ann.sort_date || ann.an_dt,
-      SOURCE: "NSE"
+      SOURCE: "NSE",
+      attachment: ann.attchmntFile,
+      attachment_text: ann.attchmntText
     }));
 }
 
@@ -244,4 +261,59 @@ export async function markHeartbeatSent() {
     "UPDATE system_settings SET value = $1, updated_at = NOW() WHERE key = 'last_heartbeat_at'",
     [JSON.stringify(today)]
   );
+}
+
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const pdf = require("pdf-parse");
+
+/**
+ * Downloads a PDF from a URL and extracts its text content.
+ * Limited to first ~10,000 characters to prevent AI context overflow.
+ * 
+ * @param {string} url 
+ * @returns {Promise<string>}
+ */
+export async function extractTextFromPdfUrl(url) {
+  if (!url) return "";
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout for PDF download
+
+  try {
+    console.log(`[PDF] Downloading... ${url}`);
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Failed to download PDF: ${response.status}`);
+    }
+
+    console.log(`[PDF] Parsing...`);
+    const buffer = await response.arrayBuffer();
+    const data = await pdf(Buffer.from(buffer));
+    
+    // Clean up text: remove extra whitespace and truncate
+    const cleanText = data.text
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 10000);
+
+    console.log(`[PDF] Extracted ${cleanText.length} characters.`);
+    return cleanText;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      console.warn(`[PDF TIMEOUT] Failed to download PDF within 30s: ${url}`);
+    } else {
+      console.error(`[PDF ERROR] Failed to extract text from ${url}:`, err.message);
+    }
+    return "";
+  }
 }

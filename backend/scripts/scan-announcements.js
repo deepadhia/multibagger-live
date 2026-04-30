@@ -8,16 +8,17 @@ import {
   updateStockResultDate,
   resetStuckPending,
   isHeartbeatNeeded,
-  markHeartbeatSent
+  markHeartbeatSent,
+  extractTextFromPdfUrl
 } from "../services/announcement.service.js";
 import { classifyAnnouncementWithNim } from "../services/nim.service.js";
-import { sendAnnouncementAlert, sendTelegramMessage } from "../services/telegram.service.js";
+import { sendAnnouncementAlert, sendRunSummary, sendTelegramMessage, buildBseDocumentUrl } from "../services/telegram.service.js";
 import { pool } from "../db/pool.js";
 
 /**
  * Retry wrapper for flaky APIs.
  */
-async function withRetry(fn, retries = 2) {
+async function withRetry(fn, label = "Operation", retries = 2) {
   let lastErr;
   for (let i = 0; i <= retries; i++) {
     try {
@@ -26,7 +27,7 @@ async function withRetry(fn, retries = 2) {
       lastErr = e;
       if (i < retries) {
         const delay = 1000 * (i + 1);
-        console.warn(`Retry ${i+1}/${retries} after error: ${e.message}. Waiting ${delay}ms...`);
+        console.warn(`[RETRY] ${label} failed (attempt ${i+1}/${retries+1}): ${e.message}. Retrying in ${delay}ms...`);
         await new Promise(r => setTimeout(r, delay));
       }
     }
@@ -34,7 +35,7 @@ async function withRetry(fn, retries = 2) {
   throw lastErr;
 }
 
-const MAX_ALERTS_PER_RUN = 5;
+const MAX_ALERTS_PER_RUN = 10;
 
 /**
  * Daily Heartbeat to confirm the system is alive.
@@ -53,18 +54,23 @@ async function sendHeartbeat() {
 /**
  * Main Scanning Orchestrator
  */
-export async function scan() {
-  console.log("Starting Corporate Announcement Scan...");
-  
+export async function scan({ isDryRun = false, runUrl = null } = {}) {
+  console.log(`Starting Corporate Announcement Scan... ${isDryRun ? "[DRY RUN]" : ""}`);
+  const startTime = Date.now();
+
   // 0. System Cleanup & Heartbeat
   await resetStuckPending();
   await sendHeartbeat();
 
   // 1. Get all stocks from DB
-  const { rows: stocks } = await pool.query("SELECT id, ticker, bse_scrip_code FROM stocks");
+  const { rows: stocks } = await pool.query("SELECT id, ticker, bse_scrip_code, investment_thesis, category FROM stocks");
   console.log(`Scanning ${stocks.length} stocks...`);
 
-  let alertsSent = 0;
+  // ── Run-level stats (for end-of-run summary) ──
+  let alertsSent        = 0;
+  let newAnnouncements  = 0;
+  let bseErrors         = 0;
+  let nseErrors         = 0;
 
   for (const stock of stocks) {
     try {
@@ -79,6 +85,7 @@ export async function scan() {
         console.log(`Found ${bseList.length} raw announcements for ${stock.ticker} (BSE)`);
       } catch (err) {
         console.error(`[ERROR] BSE fetch failed for ${stock.ticker}:`, err.message);
+        bseErrors++;
       }
 
       try {
@@ -86,17 +93,26 @@ export async function scan() {
         console.log(`Found ${nseList.length} raw announcements for ${stock.ticker} (NSE)`);
       } catch (err) {
         console.error(`[ERROR] NSE fetch failed for ${stock.ticker}:`, err.message);
+        nseErrors++;
       }
 
       // 3. Merge and Deduplicate by Title Hash
+      // Preserve source metadata so we can build document links later.
       const mergedMap = new Map();
-      [...bseList, ...nseList].forEach(ann => {
+      bseList.forEach(ann => {
         const title = ann.NEWSSUB;
         const timestamp = ann.DT_TM;
         const hash = generateAnnouncementHash(stock.ticker, title, timestamp);
-        
         if (!mergedMap.has(hash)) {
-          mergedMap.set(hash, { ...ann, hash });
+          mergedMap.set(hash, { ...ann, hash, _source: "BSE" });
+        }
+      });
+      nseList.forEach(ann => {
+        const title = ann.NEWSSUB;
+        const timestamp = ann.DT_TM;
+        const hash = generateAnnouncementHash(stock.ticker, title, timestamp);
+        if (!mergedMap.has(hash)) {
+          mergedMap.set(hash, { ...ann, hash, _source: "NSE" });
         }
       });
 
@@ -104,10 +120,15 @@ export async function scan() {
       console.log(`Merged to ${uniqueAnnouncements.length} unique announcements for ${stock.ticker}`);
 
       for (const ann of uniqueAnnouncements) {
-        const title = ann.NEWSSUB;
-        const hash = ann.hash;
+        const title    = ann.NEWSSUB;
+        const hash     = ann.hash;
         const sourceId = ann.NEWS_ID;
-        const ticker = stock.ticker;
+        const ticker   = stock.ticker;
+        const annSource = ann._source || "BSE";
+        const timestamp = ann.DT_TM;
+        // BSE-specific document metadata
+        const newsId   = ann.NEWS_ID;
+        const pdfFlag  = ann.PDFFLAG ?? 0;
 
         // 4. Keyword Filter (Stage 1)
         if (!shouldProcessAnnouncement(title)) {
@@ -120,13 +141,55 @@ export async function scan() {
           continue;
         }
 
+        const GENERIC_TITLES = ["General Updates", "Updates", "Corporate Announcement", "Press Release"];
+        const isGenericTitle = GENERIC_TITLES.includes(title);
+
+        if (!isGenericTitle) {
+          const fuzzyResult = await pool.query(
+            `SELECT id FROM corporate_announcements 
+             WHERE ticker = $1 
+             AND (title ILIKE $2 OR $3 ILIKE '%' || title || '%')
+             AND status = 'sent' 
+             AND processed_at > NOW() - interval '24 hours'`,
+            [ticker, `%${title.split(' ')[0]}%`, title]
+          );
+          if (fuzzyResult.rows.length > 0) {
+            console.log(`[SKIP] Fuzzy duplicate detected for ${ticker}: ${title}`);
+            continue;
+          }
+        }
+
+        newAnnouncements++;
+
         console.log(`[NEW] Found potential announcement for ${ticker}: ${title}`);
+
+        // 5c. Fetch PDF Content for Deep Analysis
+        let announcementText = title; // Default to title
+        let docUrl = null;
+
+        if (annSource === "BSE" && newsId) {
+          docUrl = buildBseDocumentUrl(newsId, pdfFlag);
+        } else if (annSource === "NSE" && ann.attachment) {
+          // NSE API usually provides a direct attachment path
+          docUrl = ann.attachment.startsWith('http') ? ann.attachment : `https://nsearchives.nseindia.com/corporate/${ann.attachment}`;
+        }
+
+        if (ann.attachment_text) {
+          console.log(`[TEXT] Using provided attachment text for ${ticker}`);
+          announcementText = `TITLE: ${title}\n\nSUMMARY:\n${ann.attachment_text}`;
+        } else if (docUrl) {
+          console.log(`[PDF] Extracting text from: ${docUrl}`);
+          const extractedText = await extractTextFromPdfUrl(docUrl);
+          if (extractedText) {
+            announcementText = `TITLE: ${title}\n\nCONTENT:\n${extractedText}`;
+            console.log(`[PDF] Successfully extracted ${extractedText.length} chars.`);
+          }
+        }
 
         // 6. NVIDIA NIM AI Classify (Stage 2) with Retry
         let aiResult;
         try {
-          // Passing title as both text and title for now as we don't scrape PDFs yet
-          aiResult = await withRetry(() => classifyAnnouncementWithNim(ticker, title, title));
+          aiResult = await withRetry(() => classifyAnnouncementWithNim(ticker, announcementText, title, stock.investment_thesis), "AI Classification");
         } catch (err) {
           console.error(`AI Classification permanently failed for ${ticker}:`, err.message);
           continue;
@@ -134,9 +197,11 @@ export async function scan() {
 
         // 7. Alert if High Priority
         let sentToTelegram = false;
-        if (aiResult.priority === "HIGH" && aiResult.confidence === "HIGH") {
+        if (aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
           if (alertsSent >= MAX_ALERTS_PER_RUN) {
             console.warn(`[LIMIT] Max alerts reached for this run. Skipping telegram for ${ticker}`);
+          } else if (isDryRun) {
+            console.log(`[DRY RUN] Would send alert for ${ticker}: ${title}`);
           } else {
             try {
               await withRetry(() => sendAnnouncementAlert({
@@ -148,8 +213,13 @@ export async function scan() {
                 confidence: aiResult.confidence,
                 key_data: aiResult.key_data,
                 deep_dive_indicator: aiResult.deep_dive_indicator,
-                result_date: aiResult.result_date
-              }));
+                result_date: aiResult.result_date,
+                is_earnings_release: aiResult.is_earnings_release,
+                category: stock.category,
+                exchangeTimestamp: timestamp,
+                docUrl,
+                source: annSource,
+              }), "Telegram Alert");
               sentToTelegram = true;
               alertsSent++;
             } catch (err) {
@@ -186,6 +256,25 @@ export async function scan() {
   }
 
   console.log("Scan complete.");
+
+  // ── End-of-run summary to Telegram ───────────────────────────────────────
+  const durationMs = Date.now() - startTime;
+  try {
+    await sendRunSummary({
+      stocksScanned: stocks.length,
+      newAnnouncements,
+      alertsSent,
+      bseErrors,
+      nseErrors,
+      durationMs,
+      runUrl,
+      isDryRun,
+    });
+  } catch (err) {
+    console.error("[WARN] Failed to send run summary:", err.message);
+  }
+
+  return { stocksScanned: stocks.length, newAnnouncements, alertsSent, bseErrors, nseErrors, durationMs };
 }
 
 // Check if run directly

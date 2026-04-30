@@ -144,10 +144,11 @@ supabase secrets set SCREENER_CSRF_TOKEN=<your_screener_csrf_token>
 3. Copy the values of `sessionid` and `csrftoken`
 
 #### 4.1. Real-Time Announcement Pipeline (Backend only)
-To enable the **Institution-Grade** corporate announcement scanner:
+To enable the **Thesis-Aware** corporate announcement scanner:
 1.  **NVIDIA NIM**: Set `NVIDIA_API_KEY` for Llama 3.1 classification.
 2.  **Telegram**: Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` for real-time alerts.
 3.  **Supabase**: The scanner uses `DATABASE_URL` (Direct PG connection) for high-performance ingestion.
+4.  **Investment Thesis**: Ensure the `investment_thesis` column in the `stocks` table is populated for best results.
 
 ### 5. Serve Edge Functions Locally
 
@@ -193,8 +194,9 @@ The app will be available at `http://localhost:5173`.
 ## Key Features
 
 - **Dual-Exchange Announcement Scanner**: Integrated real-time ingestion from **BSE** and **NSE** with automated "Merge Model" deduplication.
-- **Institution-Grade AI Classification**: Uses Llama 3.1 (via NVIDIA NIM) to extract materiality data (Order values, Capex, M&A) and strategic "Deep Dive" indicators.
-- **Real-Time Telegram Alerts**: High-signal, structured notifications delivered to your phone for critical corporate actions.
+- **Thesis-Aware AI Classification**: Uses Llama 3.1 (via NVIDIA NIM) to classify news not just by topic, but by how it impacts your specific **Investment Thesis**.
+- **Full Document Intelligence**: Automatic extraction and analysis of PDF attachments, allowing the AI to understand the core details of generic filings (e.g. "News Verification" or "General Updates").
+- **Sentiment-First Telegram Alerts**: High-signal, structured notifications that prioritize **IMPACT (POSITIVE/NEGATIVE)** and include portfolio category context, key figures, and direct document links.
 - **Automatic Result Date Sync**: Detects upcoming financial result dates in filings and automatically updates the portfolio countdown.
 - **Announcements**: On each stock’s detail page, an **Announcements** tab lists downloaded filings (earnings, concall transcripts, investor presentations) by quarter and type with **View** links. Use **Download filings** to fetch from NSE & Screener.
 - **Google Drive upload** (optional): Upload announcements to a Drive folder in a structured layout. See [docs/GOOGLE_DRIVE_SETUP.md](docs/GOOGLE_DRIVE_SETUP.md) for creating a service account and API key.
