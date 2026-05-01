@@ -126,8 +126,9 @@ export async function sendAnnouncementAlert({
     : getIstTimestamp();
 
   // ── Header ────────────────────────────────────────────────────────────────
-  let message = `${impactEmoji} *IMPACT: ${impact}*\n`;
-  message    += `*${ticker.toUpperCase()}* ${categoryLabel} | ${priorityEmoji} ${priority}\n`;
+  let message = `🚀 *${priority} IMPACT ALERT*\n`;
+  message    += `${impactEmoji} *${impact.toUpperCase()}* | *${ticker.toUpperCase()}*\n`;
+  message    += `_${category ? category : "General"}_ • 🏛️ ${source}\n`;
   message    += `─────────────────────────\n`;
 
   // ── Earnings Release Banner ───────────────────────────────────────────────
@@ -140,18 +141,17 @@ export async function sendAnnouncementAlert({
   message += `📋 *Summary*\n${summary}\n\n`;
 
   // ── Key Figures ───────────────────────────────────────────────────────────
-  if (key_data && key_data !== "No specific figures disclosed.") {
-    message += `📊 *Key Figures*\n${key_data}\n\n`;
+  if (key_data && key_data !== "No specific figures disclosed." && key_data !== "No specific figures extracted.") {
+    message += `📊 *Key Data & Metrics*\n${key_data}\n\n`;
   }
 
   // ── Investment Thesis / Risk ──────────────────────────────────────────────
   if (deep_dive_indicator) {
-    message += `🔍 *Investment Insight*\n${deep_dive_indicator}\n\n`;
+    message += `🔍 *Investment Context*\n${deep_dive_indicator}\n\n`;
   }
 
   // ── Meta info ─────────────────────────────────────────────────────────────
   message += `🎯 *AI Confidence:* ${confidenceBadge}\n`;
-  message += `🏛️ *Source:* ${source}\n`;
 
   // ── Next Results Date ─────────────────────────────────────────────────────
   if (result_date) {

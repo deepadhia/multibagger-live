@@ -24,7 +24,9 @@ type SearchRow = {
 const SAMPLE_THESIS = `High-voltage electrical equipment and reactor scaling driven by grid modernisation and data centres. Primary metric: consolidated order backlog. Thesis holds as long as order inflow growth stays >15% and working capital days do not structurally deteriorate.`;
 
 const SAMPLE_TRACKING_JSON = `{
+  "ticker": "QPOWER",
   "core_thesis": "High-voltage equipment scaling driven by grid modernisation and data centres",
+  "primary_thesis_metric": { "key": "consolidated_order_backlog", "label": "Consolidated Order Backlog (Rs Cr)" },
   "tracking_directives": "Track consolidated order backlog QoQ. Flag if order inflow growth <15% for 2 consecutive quarters or working capital days rise >90.",
   "thesis_type": "order_book_growth",
   "metric_keys": ["revenue_growth", "opm", "consolidated_order_backlog", "working_capital_days"],
@@ -450,7 +452,9 @@ export function AddStockDialog() {
                 onChange={(e) => setTrackingProfileJson(e.target.value)}
                 className="bg-background border-border font-mono text-xs min-h-[140px]"
                 placeholder={`{
+  "ticker": "QPOWER",
   "core_thesis": "High-voltage equipment scaling driven by grid modernisation and data centres",
+  "primary_thesis_metric": { "key": "consolidated_order_backlog", "label": "Consolidated Order Backlog (Rs Cr)" },
   "tracking_directives": "Track consolidated order backlog QoQ. Flag if order inflow growth <15% for 2 consecutive quarters or working capital days rise >90.",
   "thesis_type": "order_book_growth",
   "metric_keys": ["revenue_growth", "opm", "consolidated_order_backlog", "working_capital_days"],

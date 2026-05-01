@@ -19,8 +19,20 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     throw new Error("NVIDIA_API_KEY not configured.");
   }
 
-  const thesisSection = investmentThesis 
-    ? `── Investment Thesis (Context) ──\n${investmentThesis}\n`
+  let displayThesis = investmentThesis;
+  if (investmentThesis && typeof investmentThesis === 'string' && investmentThesis.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(investmentThesis);
+      if (parsed.primary_thesis) {
+        displayThesis = parsed.primary_thesis;
+      }
+    } catch (e) {
+      // Not JSON or parse failed, use raw string
+    }
+  }
+
+  const thesisSection = displayThesis 
+    ? `── Investment Thesis (Context) ──\n${displayThesis}\n`
     : "";
 
   const prompt = `
