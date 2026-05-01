@@ -222,7 +222,13 @@ The platform now operates on a sophisticated **Hybrid Intelligence** decision en
 - **Explained Cooldown**: Intelligent handling of one-time explained selling events (block deals, PE exits).
 - **Event-Driven Intelligence**: Real-time corporate action ingestion (BSE/NSE) that updates conviction in between quarterly reports.
 
-### 4. V10 Legacy Features
+### 4. Decision Engine (Prompt Generator)
+- **Mathematical Pre-Processing**: Calculates tolerance-based trends (`±5%` growth, `±0.5%` margins) to filter out noise and extract true momentum before passing data to the LLM.
+- **Smart Data Handling**: Auto-detects holes in data, switches to 2-quarter trends dynamically, and labels missing data as `NOT DISCLOSED` to strictly prevent hallucination.
+- **Source Attribution**: Injects `Source:` labels alongside pre-processed metrics to guarantee the AI correctly attributes values.
+- **Smart Toggles**: UI controls to toggle sections of the prompt (Ownership, Valuations, Previous Verdict) to actively manage the context window size and precision.
+
+### 5. V10 Legacy Features
 - **Multibagger Mode**: Protects high-conviction winners from premature exits.
 - **Penalty Normalization**: Consolidates overlapping penalties to prevent artificial score collapse.
 - **Portfolio Awareness**: Flags theme concentration bounds.
