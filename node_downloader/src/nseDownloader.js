@@ -5,6 +5,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import axios from "axios";
 import dayjs from "dayjs";
 import {
@@ -20,7 +21,7 @@ import { eventDateToResultsQuarter } from "./quarterFromEventDate.js";
 import { quarterDirHasCategory } from "./quarterDirCategories.js";
 
 // Same categories and logic as Python nse_filing_downloader (earnings + presentation only; concall from Screener)
-const ALLOWED_CATEGORIES = new Set(["earnings_result", "investor_presentation"]);
+const ALLOWED_CATEGORIES = new Set(["earnings_result", "investor_presentation", "raw_xbrl"]);
 
 // NSE API uses attchmntText (Python spelling); support both
 function getAttachmentText(ann) {
@@ -36,7 +37,7 @@ function isRelevant(ann) {
   if (
     !attachUrl ||
     attachUrl === "-" ||
-    !attachUrl.startsWith("http")
+    (!attachUrl.startsWith("http") && !attachUrl.includes("xml") && !attachUrl.includes("zip"))
   ) {
     return false;
   }
@@ -72,6 +73,7 @@ function isRelevant(ann) {
     "presentation on financial results",
     "results presentation",
     "presentation",
+    "xbrl",
   ];
   if (!positiveKeywords.some((kw) => combined.includes(kw))) {
     return false;
@@ -146,6 +148,9 @@ function classifyFiling(ann) {
   }
   if (text.includes("investor presentation") || text.includes("presentation")) {
     return "investor_presentation";
+  }
+  if (text.includes("xbrl")) {
+    return "raw_xbrl";
   }
   if (
     [
@@ -246,29 +251,35 @@ async function createNseSession() {
   return session;
 }
 
-async function downloadPdf(session, url, savePath) {
+async function downloadFile(session, url, savePath) {
   ensureDirSync(path.dirname(savePath));
   try {
     const res = await session.get(url, { responseType: "arraybuffer" });
     if (res.status !== 200) {
-      console.warn(`[NSE] PDF download HTTP ${res.status}: ${url.slice(0, 80)}...`);
-      return false;
+      console.warn(`[NSE] Download HTTP ${res.status}: ${url.slice(0, 80)}...`);
+      return null;
     }
     const buf = Buffer.isBuffer(res.data) ? res.data : Buffer.from(res.data);
-    if (buf.length < 100 || buf[0] !== 0x25 || buf[1] !== 0x50) {
-      console.warn(`[NSE] Response not a PDF (size=${buf.length}, magic=${buf.slice(0, 4).toString("ascii")}): ${url.slice(0, 60)}...`);
-      return false;
+    
+    // Safety check for PDFs only
+    if (savePath.toLowerCase().endsWith(".pdf")) {
+      if (buf.length < 100 || buf[0] !== 0x25 || buf[1] !== 0x50) {
+        console.warn(`[NSE] Response not a PDF (size=${buf.length}, magic=${buf.slice(0, 4).toString("ascii")}): ${url.slice(0, 60)}...`);
+        return null;
+      }
     }
+    
     fs.writeFileSync(savePath, buf);
-    console.log(`[NSE] Saved: ${path.basename(savePath)}`);
-    return true;
+    const hash = crypto.createHash('sha256').update(buf).digest('hex');
+    console.log(`[NSE] Saved: ${path.basename(savePath)} (hash=${hash.slice(0, 8)}...)`);
+    return { success: true, hash };
   } catch (err) {
-    console.error(`[NSE] Failed to download PDF: ${err.message}. URL: ${url.slice(0, 80)}...`);
-    return false;
+    console.error(`[NSE] Failed to download: ${err.message}. URL: ${url.slice(0, 80)}...`);
+    return null;
   }
 }
 
-function updateMetaJson(folderPath, ann, filename, category) {
+function updateMetaJson(folderPath, ann, filename, category, hash) {
   const metaPath = path.join(folderPath, "meta.json");
   const existing = readJsonSync(metaPath, []);
   existing.push({
@@ -281,6 +292,7 @@ function updateMetaJson(folderPath, ann, filename, category) {
     seq_id: ann.seq_id ?? "",
     source_url: ann.attchmntFile ?? "",
     file_size: ann.attachmentSize ?? "",
+    hash: hash || null,
   });
   writeJsonSync(metaPath, existing);
 }
@@ -394,45 +406,100 @@ async function processSymbol(session, symbol, fromStr, toStr, downloadLog, dataD
 
     const datePart = sortDate ? sortDate.slice(0, 10) : "unknown";
     // Include symbol (share), quarter, and category in filename for easier identification on disk
-    const filename = `${symbol}_${quarter}_${category}_${datePart}_${seqId}.pdf`;
+    let ext = ".pdf";
+    if (pdfUrl.toLowerCase().includes(".xml")) ext = ".xml";
+    if (pdfUrl.toLowerCase().includes(".zip")) ext = ".zip";
+    
+    const filename = `${symbol}_${quarter}_${category}_${datePart}_${seqId}${ext}`;
     const folder = quarterFolder;
     const savePath = path.join(folder, filename);
 
     attempted += 1;
-    const ok = await downloadPdf(session, pdfUrl, savePath);
-    if (ok) {
+    const result = await downloadFile(session, pdfUrl, savePath);
+    if (result && result.success) {
       downloadLog[seqId] = {
         symbol,
         category,
         quarter,
         filename: savePath,
         url: pdfUrl,
+        hash: result.hash,
         downloaded_at: new Date().toISOString(),
       };
-      updateMetaJson(folder, ann, filename, category);
+      updateMetaJson(folder, ann, filename, category, result.hash);
       downloaded += 1;
     }
 
     await sleep(REQUEST_DELAY_MS);
   }
 
+  // ENRICHMENT: Download Integrated Filings (XBRL)
+  const integratedDownloaded = await downloadIntegratedFilings(symbol, fromStr, toStr, baseDir);
+  downloaded += integratedDownloaded;
+
   if (recoveredFromMissing > 0) {
     console.log(`[NSE] ${symbol}: ${recoveredFromMissing} entry(ies) in log had missing file on disk; will re-download.`);
   }
   console.log(
     `[NSE] ${symbol} ${fromStr}..${toStr}: raw=${anns.length} relevant=${relevant} classified=${classified} allowed=${allowed} ` +
-      `skipNoUrl=${skippedNoUrl} skipInLog=${skippedInLog} skipDupQ=${skippedDupQuarter} skipOnDisk=${skippedAlreadyOnDisk} attempted=${attempted} downloaded=${downloaded}`,
+      `skipNoUrl=${skippedNoUrl} skipInLog=${skippedInLog} skipDupQ=${skippedDupQuarter} skipOnDisk=${skippedAlreadyOnDisk} attempted=${attempted} downloaded=${downloaded} (incl. ${integratedDownloaded} XBRL)`,
   );
-  if (anns.length > 0 && allowed === 0) {
-    const sample = anns.find((a) => isRelevant(a));
-    const cat = sample ? classifyFiling(sample) : "(none)";
-    console.warn(
-      `[NSE] ${symbol}: No announcements passed allowed categories (earnings_result, investor_presentation). ` +
-      `Sample relevant announcement classified as: ${cat}. ` +
-      `Check NSE listing or classification keywords.`,
-    );
-  }
   return downloaded;
+}
+
+async function downloadIntegratedFilings(symbol, fromStr, toStr, baseDir) {
+  const url = `https://www.nseindia.com/api/integrated-filing-results?index=equities&from_date=${fromStr}&to_date=${toStr}&symbol=${symbol}&type=Integrated%20Filing-%20Financials`;
+  
+  const session = axios.create({ headers: NSE_HEADERS });
+  try {
+    const response = await session.get(url);
+    const filings = response.data.data || [];
+    let downloaded = 0;
+
+    for (const f of filings) {
+      if (!f.xbrl || f.xbrl === "-" || f.xbrl.includes("null")) continue;
+
+      const qeDate = f.qe_Date || f.periodEnded || "unknown";
+      const quarter = inferQuarterFromDate(qeDate);
+      if (quarter === "UNKNOWN") {
+        console.warn(`[NSE] Skipping integrated filing with unknown date: ${f.xbrl}`);
+        continue;
+      }
+      const folder = path.join(baseDir, symbol, quarter);
+      ensureDirSync(folder);
+
+      const xbrlBase = f.xbrl.split('/').pop();
+      const filename = `${symbol}_${quarter}_raw_xbrl_${qeDate}_${xbrlBase}`;
+      const savePath = path.join(folder, filename);
+
+      if (fs.existsSync(savePath)) continue;
+
+      console.log(`[NSE] Downloading Integrated XBRL for ${symbol}: ${f.xbrl}`);
+      const result = await downloadFile(session, f.xbrl, savePath);
+      if (result && result.success) {
+        downloaded += 1;
+      }
+    }
+    return downloaded;
+  } catch (error) {
+    console.error(`[NSE] Error fetching integrated filings for ${symbol}:`, error.message);
+    return 0;
+  }
+}
+
+function inferQuarterFromDate(dateStr) {
+  if (!dateStr || dateStr === "unknown" || dateStr === "undefined") return "UNKNOWN";
+  const d = dayjs(dateStr, ["DD-MMM-YYYY", "DD-MM-YYYY", "YYYY-MM-DD"]);
+  if (!d.isValid()) return "UNKNOWN";
+  
+  const month = d.month() + 1;
+  const year = d.year();
+  let q, fy;
+  if (month >= 4 && month <= 6) { q = 1; fy = year + 1; }
+  else if (month >= 7 && month <= 9) { q = 2; fy = year + 1; }
+  else if (month >= 10 && month <= 12) { q = 3; fy = year + 1; }
+  else { q = 4; fy = year; }
+  return `FY${String(fy).slice(-2)}-Q${q}`;
 }
 
 async function runHistorical({ symbolFilter, historyWindow, dataDir }) {
@@ -526,6 +593,7 @@ function parseArgs() {
 export { runHistorical };
 
 async function main() {
+  console.log("Starting NSE Downloader...");
   const { mode, symbol, historyWindow } = parseArgs();
   ensureDirSync(DATA_DIR);
   console.log("NSE data directory:", DATA_DIR);
@@ -538,10 +606,8 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, "/")) {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 

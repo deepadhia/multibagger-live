@@ -18,6 +18,7 @@ import {
 import { geminiRouter } from "./routes/gemini.routes.js";
 import { marketRouter } from "./routes/market.routes.js";
 import { requireAuth } from "./middleware/requireAuth.js";
+import { xbrlRouter } from "./routes/xbrl.routes.js";
 
 export const app = express();
 
@@ -70,3 +71,4 @@ app.use(financialsRouter);
 app.use(stocksRouter);
 app.use(transcriptsRouter);
 app.use(geminiRouter);
+app.use(xbrlRouter);

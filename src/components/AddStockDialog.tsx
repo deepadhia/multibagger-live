@@ -161,90 +161,66 @@ export function AddStockDialog() {
     }
 
     setLoading(true);
-    const { data: inserted, error } = await supabase.from("stocks").insert({
-      company_name: cn,
-      ticker: t,
-      sector: sector.trim() || null,
-      category,
-      buy_price: buyPrice ? Number(buyPrice) : null,
-      investment_thesis: thesis.trim() || null,
-      screener_slug: slug,
-      bse_scrip_code: bseScripCode.trim() || null,
-    }).select().single();
-
-    if (error || !inserted) {
-      setLoading(false);
-      toast({ title: "Error", description: error?.message || "Failed to add stock", variant: "destructive" });
-      return;
-    }
-
-    const stockId = inserted.id;
-
-    if (profileConfig) {
-      const { error: profileErr } = await supabase
-        .from("stock_tracking_profiles")
-        .upsert({ stock_id: stockId, config: profileConfig as Record<string, unknown> }, { onConflict: "stock_id" });
-      if (profileErr) {
-        toast({
-          title: "Stock added",
-          description: `Tracking profile not saved: ${profileErr.message}. You can paste JSON in Master Prompt on the stock page.`,
-          variant: "destructive",
-        });
-      } else {
-        const stockUpdates: { tracking_directives?: string; metric_keys?: string[] } = {};
-        if (typeof profileConfig.tracking_directives === "string") {
-          stockUpdates.tracking_directives = profileConfig.tracking_directives;
-        }
-        const mk = metricKeysFromProfileConfig(profileConfig);
-        if (mk !== null && mk.length > 0) stockUpdates.metric_keys = mk;
-        if (Object.keys(stockUpdates).length > 0) {
-          await supabase.from("stocks").update(stockUpdates).eq("id", stockId);
-        }
+    
+    try {
+      const res = await apiFetch("/api/stocks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company_name: cn,
+          ticker: t,
+          sector: sector.trim() || null,
+          category,
+          buy_price: buyPrice ? Number(buyPrice) : null,
+          investment_thesis: thesis.trim() || null,
+          screener_slug: slug,
+          bse_scrip_code: bseScripCode.trim() || null,
+          profileConfig
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to add stock via API");
+      }
+      
+      const stockId = data.stock.id;
+      
+      queryClient.invalidateQueries({ queryKey: ["stock", stockId] });
+      queryClient.invalidateQueries({ queryKey: ["stocks"] });
+      if (profileConfig) {
         queryClient.invalidateQueries({ queryKey: ["stock-tracking-profile", stockId] });
       }
+      
+      setLoading(false);
+      setOpen(false);
+
+      toast({
+        title: "Stock added",
+        description: `Fetching price, financials & filings for ${t} in background…`,
+      });
+
+      // Transcripts fetch still triggered from UI side for now, 
+      // but financials/price are strictly handled by the backend event.
+      (async () => {
+        try {
+          await apiFetch("/api/transcripts/download", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              symbols: [t],
+              onlyMissing: true,
+              uploadAfterDownload: true,
+              window: "1y",
+            }),
+          });
+          queryClient.invalidateQueries({ queryKey: ["transcripts-files"] });
+        } catch (_) {}
+      })();
+    } catch (err: any) {
+      setLoading(false);
+      toast({ title: "Error", description: err.message || "Failed to add stock", variant: "destructive" });
     }
-
-    queryClient.invalidateQueries({ queryKey: ["stock", stockId] });
-    queryClient.invalidateQueries({ queryKey: ["stocks"] });
-    setLoading(false);
-    setOpen(false);
-
-    toast({
-      title: "Stock added",
-      description: `Fetching price, financials & filings for ${t} in background…`,
-    });
-
-    (async () => {
-      try {
-        await apiFetch("/api/stocks/refresh-screener-data", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            stock_id: stockId,
-            ticker: t,
-            screener_slug: slug,
-          }),
-        });
-        queryClient.invalidateQueries({ queryKey: ["prices"] });
-        queryClient.invalidateQueries({ queryKey: ["financial-metrics", stockId] });
-        queryClient.invalidateQueries({ queryKey: ["financial-results", stockId] });
-        queryClient.invalidateQueries({ queryKey: ["shareholding", stockId] });
-        queryClient.invalidateQueries({ queryKey: ["peers", stockId] });
-      } catch (_) {}
-      try {
-        await apiFetch("/api/transcripts/download", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            symbols: [t],
-            onlyMissing: true,
-            uploadAfterDownload: true,
-            window: "1y",
-          }),
-        });
-        queryClient.invalidateQueries({ queryKey: ["transcripts-files"] });
-      } catch (_) {}
-    })();
   };
 
   return (

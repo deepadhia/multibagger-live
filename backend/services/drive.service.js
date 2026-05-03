@@ -200,7 +200,10 @@ function collectPdfFiles(symbolFilter = null) {
       const quarterDir = path.join(symbolDir, quarter);
       if (!fs.statSync(quarterDir).isDirectory() || !quarter.startsWith("FY")) continue;
 
-      const files = fs.readdirSync(quarterDir).filter((f) => f.toLowerCase().endsWith(".pdf"));
+      const files = fs.readdirSync(quarterDir).filter((f) => {
+        const ext = f.toLowerCase();
+        return ext.endsWith(".pdf") || ext.endsWith(".xml");
+      });
       for (const filename of files) {
         list.push({
           symbol,
@@ -250,8 +253,9 @@ async function ensureFolder(drive, parentId, name) {
  */
 async function uploadFile(drive, parentId, localPath, filename) {
   const fileMetadata = { name: filename, parents: [parentId] };
+  const isXml = filename.toLowerCase().endsWith(".xml");
   const media = {
-    mimeType: "application/pdf",
+    mimeType: isXml ? "text/xml" : "application/pdf",
     body: fs.createReadStream(localPath),
   };
 
@@ -267,6 +271,21 @@ async function uploadFile(drive, parentId, localPath, filename) {
     webViewLink: file.data.webViewLink || null,
     name: file.data.name || filename,
   };
+}
+
+/**
+ * Targeted upload for a single filing.
+ */
+export async function uploadSingleFiling({ symbol, quarter, localPath, filename }) {
+  if (!isDriveConfigured()) return null;
+  const drive = await getDriveClient();
+  
+  const rootId = DRIVE_FOLDER_ID;
+  const announcementsFolderId = await ensureFolder(drive, rootId, DRIVE_UPLOAD_FOLDER_NAME);
+  const symbolFolderId = await ensureFolder(drive, announcementsFolderId, symbol);
+  const quarterFolderId = await ensureFolder(drive, symbolFolderId, quarter);
+
+  return await uploadFile(drive, quarterFolderId, localPath, filename);
 }
 
 /**

@@ -2,7 +2,6 @@
  * Utility functions for analyzing quarterly trends and generating AI context flags.
  */
 
-// Format: oldest to newest
 export function computeTrendDirection(values: (number | null)[], tolerance = 5): string {
   // Check for holes
   if (values.length === 3 && values[0] !== null && values[1] === null && values[2] !== null) {
@@ -15,9 +14,32 @@ export function computeTrendDirection(values: (number | null)[], tolerance = 5):
 
   if (validValues.length === 2) {
     const diff = validValues[1] - validValues[0];
-    if (diff > tolerance) return "Accelerating (2Q)";
-    if (diff < -tolerance) return "Decelerating (2Q)";
+    if (diff > tolerance) return "Improving (2Q)";
+    if (diff < -tolerance) return "Deteriorating (2Q)";
     return "Stable (2Q)";
+  }
+
+  // Check for monotonic improvement (Bug 4)
+  // If all consecutive diffs are positive, it's "Improving"
+  let monotonicImproving = true;
+  for (let i = 1; i < validValues.length; i++) {
+    if (validValues[i] <= validValues[i-1]) {
+      monotonicImproving = false;
+      break;
+    }
+  }
+  if (monotonicImproving) return "Improving";
+
+  // Check for "dip then recovery" pattern (Bug 3)
+  if (validValues.length >= 3) {
+    const newest = validValues[validValues.length - 1];
+    const middle = validValues[validValues.length - 2];
+    const oldest = validValues[validValues.length - 3];
+
+    // If it dropped then started rising
+    if (middle < oldest - tolerance && newest > middle + tolerance) {
+      return "Recovering";
+    }
   }
 
   const newest = validValues[validValues.length - 1];
@@ -27,8 +49,8 @@ export function computeTrendDirection(values: (number | null)[], tolerance = 5):
   const diff1 = middle - oldest;
   const diff2 = newest - middle;
 
-  if (diff1 > tolerance && diff2 > tolerance) return "Accelerating";
-  if (diff1 < -tolerance && diff2 < -tolerance) return "Decelerating";
+  if (diff1 > tolerance && diff2 > tolerance) return "Improving"; // Changed from Accelerating
+  if (diff1 < -tolerance && diff2 < -tolerance) return "Deteriorating";
   
   if (Math.abs(diff1) <= tolerance && Math.abs(diff2) <= tolerance) return "Stable";
   
@@ -36,7 +58,7 @@ export function computeTrendDirection(values: (number | null)[], tolerance = 5):
   if (diff1 > tolerance && Math.abs(diff2) <= tolerance) return "Stable at High Levels";
   if (diff1 < -tolerance && Math.abs(diff2) <= tolerance) return "Stabilizing after Drop";
   
-  return "Volatile / Mixed";
+  return "Mixed";
 }
 
 export function computeMarginTrend(values: (number | null)[], tolerance = 0.5): string {
@@ -55,6 +77,16 @@ export function computeMarginTrend(values: (number | null)[], tolerance = 0.5): 
     if (diff < -tolerance) return "Compressing (2Q)";
     return "Stable (2Q)";
   }
+
+  // Monotonic expanding
+  let monotonicExpanding = true;
+  for (let i = 1; i < validValues.length; i++) {
+    if (validValues[i] <= validValues[i-1]) {
+      monotonicExpanding = false;
+      break;
+    }
+  }
+  if (monotonicExpanding) return "Expanding";
 
   const newest = validValues[validValues.length - 1];
   const middle = validValues[validValues.length - 2];
@@ -147,11 +179,11 @@ export function generateAnomalyFlags(trends: {
 }): string[] {
   const flags: string[] = [];
 
-  if (trends.revTrend === "Decelerating" && trends.patTrend === "Decelerating") {
-    flags.push("🔴 Growth (Rev & PAT) decelerating for 3 quarters");
-  } else if (trends.revTrend === "Decelerating") {
+  if (trends.revTrend === "Deteriorating" && trends.patTrend === "Deteriorating") {
+    flags.push("🔴 Growth (Rev & PAT) deteriorating for 3 quarters");
+  } else if (trends.revTrend === "Deteriorating") {
     flags.push("🟠 Revenue slowing 3 quarters");
-  } else if (trends.patTrend === "Decelerating") {
+  } else if (trends.patTrend === "Deteriorating") {
     flags.push("🟠 PAT slowing 3 quarters");
   }
 
@@ -161,7 +193,7 @@ export function generateAnomalyFlags(trends: {
     flags.push("🟢 Margin expansion 3 quarters");
   }
 
-  if (trends.debtTrend === "Rising" && (trends.patTrend === "Decelerating" || trends.patTrend === "Stable")) {
+  if (trends.debtTrend === "Rising" && (trends.patTrend === "Deteriorating" || trends.patTrend === "Stable")) {
     flags.push("🔴 Debt rising while PAT flat/falling");
   }
 
@@ -171,7 +203,7 @@ export function generateAnomalyFlags(trends: {
   return flags;
 }
 
-export function formatTrendSeries(values: (number | null)[], unit = "%"): string {
+export function formatTrendSeries(values: (number | null)[], unit = ""): string {
   if (!values || values.length === 0) return "N/A";
   return values.map(v => v !== null && !isNaN(v) ? `${v}${unit}` : "N/A").join(" → ");
 }

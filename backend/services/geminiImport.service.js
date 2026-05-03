@@ -69,6 +69,11 @@ export async function importGeminiResponseToDb({ stockId, quarter, payload }) {
         })
         .nullable()
         .optional(),
+      // --- V12 fields ---
+      decision_blockers: z.array(z.string()).optional().nullable(),
+      deterioration_quarters: z.number().int().min(0).optional().nullable(),
+      data_quality_score: z.number().min(0).max(100).optional().nullable(),
+      official_filing_present: z.boolean().optional().nullable(),
     })
     .parse(payload);
 
@@ -87,9 +92,12 @@ export async function importGeminiResponseToDb({ stockId, quarter, payload }) {
     // 1) Upsert quarterly snapshot
     await client.query(
       `INSERT INTO quarterly_snapshots
-        (stock_id, quarter, summary, dodged_questions, red_flags, metrics, raw_ai_output, thesis_status, thesis_status_reason, thesis_score, valuation_score, conviction_score, final_action, position_size, scoring_version)
+        (stock_id, quarter, summary, dodged_questions, red_flags, metrics, raw_ai_output,
+         thesis_status, thesis_status_reason, thesis_score, valuation_score, conviction_score,
+         final_action, position_size, scoring_version,
+         decision_blockers, deterioration_quarters, data_quality_score, official_filing_present)
        VALUES
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        ON CONFLICT (stock_id, quarter) DO UPDATE SET
          summary = EXCLUDED.summary,
          dodged_questions = EXCLUDED.dodged_questions,
@@ -103,7 +111,11 @@ export async function importGeminiResponseToDb({ stockId, quarter, payload }) {
          conviction_score = EXCLUDED.conviction_score,
          final_action = EXCLUDED.final_action,
          position_size = EXCLUDED.position_size,
-         scoring_version = EXCLUDED.scoring_version`,
+         scoring_version = EXCLUDED.scoring_version,
+         decision_blockers = EXCLUDED.decision_blockers,
+         deterioration_quarters = EXCLUDED.deterioration_quarters,
+         data_quality_score = EXCLUDED.data_quality_score,
+         official_filing_present = EXCLUDED.official_filing_present`,
       [
         stockId,
         quarter,
@@ -119,7 +131,12 @@ export async function importGeminiResponseToDb({ stockId, quarter, payload }) {
         validated.conviction_score ?? null,
         validated.action_decision ?? null,
         validated.position_size ?? null,
-        'V9',
+        'V12',
+        // V12 intelligence columns
+        validated.decision_blockers?.length ? validated.decision_blockers : [],
+        validated.deterioration_quarters ?? 0,
+        validated.data_quality_score ?? null,
+        validated.official_filing_present ?? null,
       ],
     );
 

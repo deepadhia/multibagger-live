@@ -242,7 +242,9 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           summary: aiResult.summary,
           status: sentToTelegram ? "sent" : "ignored",
           sent_to_telegram: sentToTelegram,
-          is_earnings_release: aiResult.is_earnings_release || false
+          is_earnings_release: aiResult.is_earnings_release || false,
+          attachment_url: docUrl,
+          filing_date: timestamp
         });
 
         // 9. Update Result Date if found

@@ -129,6 +129,11 @@ interface NormalizedData {
   valuation_score: number | null;
   conviction_score: number | null;
   position_size: string | null;
+  // V12 intelligence fields
+  decision_blockers: string[] | null;
+  deterioration_quarters: number | null;
+  data_quality_score: number | null;
+  official_filing_present: boolean | null;
   raw: unknown;
 }
 
@@ -189,6 +194,11 @@ function normalize(data: any, fallbackQuarter: string): NormalizedData {
       valuation_score: v.scoring?.valuation_score ?? null,
       conviction_score: v.scoring?.conviction_score ?? null,
       position_size: v.decision?.position_size ?? null,
+      // V12: extract decision intelligence fields from raw JSON
+      decision_blockers: (v as any).decision?.decision_blockers ?? null,
+      deterioration_quarters: (v as any).thesis_monitoring?.deterioration_quarters ?? null,
+      data_quality_score: (v as any).source_intelligence?.data_quality_score ?? null,
+      official_filing_present: (v as any).source_intelligence?.official_filing_present ?? null,
       raw: data,
     };
   }
@@ -227,6 +237,10 @@ function normalize(data: any, fallbackQuarter: string): NormalizedData {
     valuation_score: null,
     conviction_score: null,
     position_size: null,
+    decision_blockers: null,
+    deterioration_quarters: null,
+    data_quality_score: null,
+    official_filing_present: null,
     raw: data,
   };
 }
