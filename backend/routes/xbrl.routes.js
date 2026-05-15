@@ -91,7 +91,14 @@ xbrlRouter.get("/api/xbrl/metrics/:stockId", async (req, res) => {
       "SELECT * FROM xbrl_metrics_quarterly WHERE stock_id = $1 ORDER BY period_end_date DESC",
       [req.params.stockId]
     );
-    return res.json(rows);
+
+    // Calculate Alpha Signals for each quarter
+    const enrichedRows = rows.map((row, idx) => {
+      const signals = calculateAlphaSignals(rows, idx);
+      return { ...row, alpha_signals: signals };
+    });
+
+    return res.json(enrichedRows);
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }

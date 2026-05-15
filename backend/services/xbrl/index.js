@@ -9,7 +9,7 @@ import { extractSegments } from './segmentExtractor.js';
 export async function parseXbrlFile(xmlContent) {
   try {
     const contexts = parseContexts(xmlContent);
-    const { metrics, cfo_period_type } = extractMetrics(xmlContent, contexts);
+    const { metrics, cfo_period_type, quarterDates } = extractMetrics(xmlContent, contexts);
     const segments = extractSegments(xmlContent, contexts);
 
     return {
@@ -17,7 +17,8 @@ export async function parseXbrlFile(xmlContent) {
       data: {
         metrics,
         segments,
-        cfo_period_type
+        cfo_period_type,
+        quarterDates
       }
     };
   } catch (error) {

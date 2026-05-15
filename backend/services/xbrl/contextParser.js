@@ -41,6 +41,32 @@ export function parseContexts(xmlContent) {
       contexts[id].quarter = `FY${String(fy).slice(-2)}-Q${q}`;
       contexts[id].fy = fy;
       
+      // Classify context: Consolidated, Standalone, or Segment
+      const explicitMembers = $(el).find('*').filter((j, e) => e.name === 'explicitMember' || e.name.endsWith(':explicitMember'));
+      
+      let isConsolidated = false;
+      let isSegmentOrOther = false;
+      
+      if (explicitMembers.length > 0) {
+        explicitMembers.each((j, e) => {
+          const text = $(e).text().toLowerCase();
+          const dim = ($(e).attr('dimension') || '').toLowerCase();
+          if (text.includes('consolidated') || dim.includes('consolidated')) {
+            isConsolidated = true;
+          } else {
+            isSegmentOrOther = true;
+          }
+        });
+        
+        if (isConsolidated) {
+          contexts[id].isConsolidated = true;
+        } else if (isSegmentOrOther) {
+          contexts[id].isSegment = true;
+        }
+      } else {
+        contexts[id].isStandalone = true;
+      }
+
       // Calculate duration in days
       if (startDate && endDate) {
         const start = new Date(startDate);
@@ -48,8 +74,8 @@ export function parseContexts(xmlContent) {
         const diffDays = Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)) + 1;
         contexts[id].days = diffDays;
         
-        // India FY logic: if starts April 1st and duration > 100 days, it's YTD
-        if (startDate.includes('-04-01') && diffDays > 100) {
+        // Duration logic: if duration is > 105 days, it is YTD or Annual, not a single quarter
+        if (diffDays > 105) {
            contexts[id].isYTD = true;
         }
       }

@@ -114,7 +114,7 @@ function buildGeminiContext(
   // --- UNIFIED FORMATTERS ---
   const toCrValue = (val: string | number | null | undefined) => {
     if (val == null) return null;
-    return Math.round((parseFloat(val as string) / 100) * 10) / 10;
+    return Math.round((parseFloat(val as string) / 10000000) * 100) / 100;
   };
   const toDisplayCrores = (val: string | number | null | undefined) => {
     const cr = toCrValue(val);
@@ -237,8 +237,12 @@ function buildGeminiContext(
       }
       
       decisionEngineContext += `Momentum Direction: ${momentumDirection}\n`;
-      decisionEngineContext += `Data Engine: Lakhs → Converted to Crores\n`;
-      decisionEngineContext += `Source: ${trendSource}\n\n`;
+      decisionEngineContext += `Data Engine: Absolute INR → Converted to Crores\n`;
+      decisionEngineContext += `Source: ${trendSource}\n`;
+      decisionEngineContext += `⚠️ STRICT RULE FOR ANALYSIS:\n`;
+      decisionEngineContext += `- IF a metric is marked [FALLBACK] and age > 1Q, treat as low reliability.\n`;
+      decisionEngineContext += `- IF a metric is marked [INVALID] or has confidence 0, IGNORE it completely for trend/scoring.\n`;
+      decisionEngineContext += `- IF age > 2Q, DO NOT USE for trend analysis as it creates fake signals.\n\n`;
     } else {
       decisionEngineContext += `${trendQText}\n\n`;
     }
@@ -313,28 +317,50 @@ function buildGeminiContext(
     decisionEngineContext += `SECTION G: Official Quarterly Financials (Source: NSE/XBRL Hybrid)\n`;
     if (sectionGxbrl.length > 0) {
       const yoy = (v: number | null) => v != null ? ` (YoY: ${v > 0 ? "+" : ""}${v}%)` : "";
+      const src = (field: string, r: any) => {
+        const meta = r.metric_metadata?.[field] || {};
+        const s = meta.source || r.metric_sources?.[field];
+        const age = meta.age_quarters || 0;
+        const valid = meta.derived_valid !== false;
+        
+        if (!valid) return ` [INVALID: ${meta.invalid_reason || 'STALE'}]`;
+        if (s === 'xbrl') return "";
+        if (s === 'fallback') return ` [FALLBACK: ${age}Q OLD]`;
+        if (s === 'derived') return " [DERIVED]";
+        if (s === 'api') return " [API SUMMARY]";
+        return s ? ` [${String(s).toUpperCase()}]` : "";
+      };
+
       for (const row of sectionGxbrl) {
-        decisionEngineContext += `\n[${row.quarter} | Period: ${row.period_end_date || "?"}]\n`;
-        decisionEngineContext += `  P&L: Rev: ${toDisplayCrores(row.revenue_from_ops)}${yoy(row.revenue_growth_yoy)} | PAT: ${toDisplayCrores(row.pat)}${yoy(row.pat_growth_yoy)}\n`;
+        decisionEngineContext += `\n[${row.quarter} | Reliability: ${row.reliability_score || 0}%]\n`;
+        decisionEngineContext += `  P&L: Rev: ${toDisplayCrores(row.revenue_from_ops)}${yoy(row.revenue_growth_yoy)}${src('revenue_from_ops', row)} | PAT: ${toDisplayCrores(row.pat)}${yoy(row.pat_growth_yoy)}${src('pat', row)}\n`;
         
         // DISTILLED SIGNALS (High ROI)
         const signals: string[] = [];
         
-        // 1. Working Capital Stress (Receivable Days)
+        // 1. Working Capital Stress (Receivable Days & WC Cycle)
         if (row.receivables != null && row.revenue_from_ops != null && row.revenue_from_ops > 0) {
           const recDays = Math.round((parseFloat(row.receivables) / parseFloat(row.revenue_from_ops)) * 90);
-          signals.push(`Receivable Days: ${recDays}d`);
+          signals.push(`Receivable Days: ${recDays}d${src('receivable_days', row)}`);
+        }
+        
+        if (row.trade_payables != null) {
+          signals.push(`Payables: ${toDisplayCrores(row.trade_payables)}${src('trade_payables', row)}`);
+        }
+        
+        if (row.working_capital_days != null) {
+          signals.push(`WC Cycle: ${Math.round(parseFloat(row.working_capital_days))}d${src('working_capital_days', row)}`);
         }
         
         // 2. Cash Flow Quality (CFO / PAT)
         if (row.cfo != null && row.pat != null && row.pat > 0) {
           const cfoRatio = (parseFloat(row.cfo) / parseFloat(row.pat)).toFixed(2);
-          signals.push(`CFO/PAT Ratio: ${cfoRatio} (${row.cfo_period_type || 'Q'})`);
+          signals.push(`CFO/PAT Ratio: ${cfoRatio}${src('cfo_pat_ratio', row)} (${row.cfo_period_type || 'Q'})`);
         }
         
         // 3. Leverage
         if (row.borrowings != null) {
-          signals.push(`Borrowings: ${toDisplayCrores(row.borrowings)}`);
+          signals.push(`Borrowings: ${toDisplayCrores(row.borrowings)}${src('borrowings', row)}`);
         }
 
         if (signals.length > 0) {

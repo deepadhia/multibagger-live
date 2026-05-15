@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useStock, useStockAnalysis, useStockCommitments, useManagementPromises, useQuarterlySnapshots } from "@/hooks/useStocks";
-import { useFinancialMetrics, useFinancialResults, useStockPrices, useShareholding, usePeerComparison } from "@/hooks/useFinancials";
+import { useFinancialMetrics, useFinancialResults, useStockPrices, useShareholding, usePeerComparison, useXbrlMetrics } from "@/hooks/useFinancials";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,7 @@ import {
   BarChart3, Activity, Shield, FileText, Users, Briefcase, ExternalLink, Trash2, Newspaper, PieChart
 } from "lucide-react";
 import { QuarterlyMetricsTab } from "@/components/QuarterlyMetricsTab";
+import { DecisionAlpha } from "@/components/DecisionAlpha";
 
 
 const chartTooltipStyle = {
@@ -105,6 +106,7 @@ export default function StockDetailPage() {
   const { data: peers } = usePeerComparison(id!);
   const { data: promises } = useManagementPromises(id!);
   const { data: snapshots } = useQuarterlySnapshots(id!);
+  const { data: xbrlMetrics } = useXbrlMetrics(id!);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [fetchingScreenerData, setFetchingScreenerData] = useState(false);
@@ -656,6 +658,11 @@ export default function StockDetailPage() {
             )}
           </Card>
         </div>
+
+        {/* ── DECISION ALPHA LAYER ── */}
+        {xbrlMetrics && xbrlMetrics.length > 0 && (
+          <DecisionAlpha alphaSignals={xbrlMetrics[0].alpha_signals} />
+        )}
 
         {/* ── MAIN TABBED CONTENT ── */}
         <Tabs defaultValue="overview" className="w-full min-w-0">

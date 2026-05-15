@@ -1,0 +1,44 @@
+name: 📅 Results Reminder
+
+# ─── Triggers ────────────────────────────────────────────────────────────────
+# Runs once a day at 8:30 AM IST (3:00 AM UTC)
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 08:30 AM IST
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (check but skip Telegram alerts)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: remind-results
+  cancel-in-progress: true
+
+jobs:
+  remind:
+    name: Send Results Reminders
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Run reminders script
+        env:
+          DATABASE_URL:        ${{ secrets.DATABASE_URL }}
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          DRY_RUN:             ${{ inputs.dry_run || 'false' }}
+        run: node backend/scripts/remind-results.js

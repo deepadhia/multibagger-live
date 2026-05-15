@@ -195,9 +195,9 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           continue;
         }
 
-        // 7. Alert if High Priority
+        // 7. Alert if High Priority or Earnings Release
         let sentToTelegram = false;
-        if (aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
+        if (aiResult.is_earnings_release || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
           if (alertsSent >= MAX_ALERTS_PER_RUN) {
             console.warn(`[LIMIT] Max alerts reached for this run. Skipping telegram for ${ticker}`);
           } else if (isDryRun) {

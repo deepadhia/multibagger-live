@@ -218,6 +218,12 @@ export async function fetchAndStoreXbrlMetrics({ stock_id, ticker, bse_scrip_cod
   const quarterMap = new Map();
   normalized.forEach(r => quarterMap.set(r.quarter, r));
 
+  // Fetch history for fallback and confidence context
+  const { rows: history } = await pool.query(
+    "SELECT * FROM xbrl_metrics_quarterly WHERE stock_id = $1 ORDER BY period_end_date DESC NULLS LAST LIMIT 4",
+    [stock_id]
+  );
+
   const symbolDir = path.join(DATA_DIR, ticker);
   if (fs.existsSync(symbolDir)) {
     const localQDirs = fs.readdirSync(symbolDir).filter(d => d.startsWith('FY'));
@@ -229,32 +235,42 @@ export async function fetchAndStoreXbrlMetrics({ stock_id, ticker, bse_scrip_cod
       const parseResult = await parseXbrlFile(xmlContent);
       if (!parseResult.success || !parseResult.data.metrics) continue;
 
-      for (const [qLabel, xmlMetrics] of Object.entries(parseResult.data.metrics)) {
+      const { metrics: xmlResults, quarterDates } = parseResult.data;
+      for (const [qLabel, xmlMetrics] of Object.entries(xmlResults)) {
         let row = quarterMap.get(qLabel);
         if (!row) {
+          const xmlDate = quarterDates[qLabel];
           row = {
             quarter: qLabel,
-            period_end_date: xmlMetrics.period_end_date,
-            source: 'xml_discovered',
-            confidence: 'xml_only'
+            period_end_date: xmlDate || null,
+            confidence: 'xml_only',
+            notes: 'XML extraction only, no matching NSE API record found.',
+            source_preferred: 'xml',
+            metric_sources: {}
           };
+          
+          // Auto-calculate fy_year for XML-only rows
+          if (xmlDate) {
+            const d = new Date(xmlDate);
+            const month = d.getMonth() + 1;
+            const year = d.getFullYear();
+            row.fy_year = (month >= 4) ? year + 1 : year;
+          }
+
           quarterMap.set(qLabel, row);
         }
 
         // Merge this specific quarter's XML data into the row
         const { merged, reconciliationLogs } = mergeXbrlData(row, { 
           metrics: { [qLabel]: xmlMetrics }, 
+          segments: parseResult.data.segments?.filter(s => s.quarter === qLabel) || [],
           confidence: 95 
-        });
+        }, history);
         
         Object.assign(row, merged);
         row.reconciliationLogs = (row.reconciliationLogs || []).concat(reconciliationLogs);
 
-        // Segments
-        if (parseResult.data.segments) {
-          const qSegments = parseResult.data.segments.filter(s => s.quarter === qLabel);
-          if (qSegments.length > 0) row.segments = qSegments;
-        }
+        // Segments are now merged and scaled inside mergeXbrlData
 
         // DRIVE & ANNOUNCEMENT INTEGRATION
         try {
@@ -334,20 +350,22 @@ export async function fetchAndStoreXbrlMetrics({ stock_id, ticker, bse_scrip_cod
         `INSERT INTO xbrl_metrics_quarterly (
             stock_id, ticker, quarter, fy_year, period_end_date, period_start_date,
             revenue_from_ops, pbt, pat, finance_cost, depreciation,
-            receivables, inventory, borrowings, cash_and_bank, cfo, capex, equity,
-            receivable_days, inventory_days, net_cash, cfo_pat_ratio,
+            receivables, inventory, trade_payables, borrowings, cash_and_bank, cfo, capex, equity,
+            receivable_days, inventory_days, payable_days, working_capital_days, net_cash, cfo_pat_ratio,
             ebitda, ebitda_margin_pct, pat_margin_pct,
             revenue_growth_yoy, pat_growth_yoy,
-            source_preferred, xml_confidence_score, reconciliation_logs, segments
+            source_preferred, xml_confidence_score, reconciliation_logs, segments,
+            gdrive_url, metric_sources, metric_metadata, reliability_score
         )
         VALUES (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
-            $12, $13, $14, $15, $16, $17, $18,
-            $19, $20, $21, $22,
-            $23, $24, $25,
-            $26, $27,
-            $28, $29, $30, $31
+            $12, $13, $14, $15, $16, $17, $18, $19,
+            $20, $21, $22, $23, $24, $25,
+            $26, $27, $28,
+            $29, $30,
+            $31, $32, $33, $34,
+            $35, $36, $37, $38
         )
         ON CONFLICT (stock_id, quarter) DO UPDATE
         SET
@@ -358,31 +376,39 @@ export async function fetchAndStoreXbrlMetrics({ stock_id, ticker, bse_scrip_cod
             finance_cost = EXCLUDED.finance_cost,
             receivables = EXCLUDED.receivables,
             inventory = EXCLUDED.inventory,
+            trade_payables = EXCLUDED.trade_payables,
             borrowings = EXCLUDED.borrowings,
             cash_and_bank = EXCLUDED.cash_and_bank,
             cfo = EXCLUDED.cfo,
             capex = EXCLUDED.capex,
             receivable_days = EXCLUDED.receivable_days,
             inventory_days = EXCLUDED.inventory_days,
+            payable_days = EXCLUDED.payable_days,
+            working_capital_days = EXCLUDED.working_capital_days,
             net_cash = EXCLUDED.net_cash,
             cfo_pat_ratio = EXCLUDED.cfo_pat_ratio,
             ebitda = EXCLUDED.ebitda,
             ebitda_margin_pct = EXCLUDED.ebitda_margin_pct,
+            metric_sources = EXCLUDED.metric_sources,
+            metric_metadata = EXCLUDED.metric_metadata,
+            reliability_score = EXCLUDED.reliability_score,
             revenue_growth_yoy = EXCLUDED.revenue_growth_yoy,
             pat_growth_yoy = EXCLUDED.pat_growth_yoy,
             source_preferred = EXCLUDED.source_preferred,
             xml_confidence_score = EXCLUDED.xml_confidence_score,
             reconciliation_logs = EXCLUDED.reconciliation_logs,
             segments = EXCLUDED.segments,
+            gdrive_url = EXCLUDED.gdrive_url,
             updated_at = now()`,
         [
           stock_id, ticker, m.quarter, m.fy_year, m.period_end_date, m.period_start_date,
           m.revenue_from_ops, m.pbt, m.pat, m.finance_cost, m.depreciation,
-          m.receivables, m.inventory, m.borrowings, m.cash_and_bank, m.cfo, m.capex, m.equity,
-          m.receivable_days, m.inventory_days, m.net_cash, m.cfo_pat_ratio,
+          m.receivables, m.inventory, m.trade_payables, m.borrowings, m.cash_and_bank, m.cfo, m.capex, m.equity,
+          m.receivable_days, m.inventory_days, m.payable_days, m.working_capital_days, m.net_cash, m.cfo_pat_ratio,
           m.ebitda, m.ebitda_margin_pct, m.pat_margin_pct,
           m.revenue_growth_yoy, m.pat_growth_yoy,
-          m.source_preferred, m.xml_confidence_score, JSON.stringify(m.reconciliationLogs || []), JSON.stringify(m.segments || [])
+          m.source_preferred, m.xml_confidence_score, JSON.stringify(m.reconciliationLogs || []), JSON.stringify(m.segments || []),
+          m.gdrive_url, JSON.stringify(m.metric_sources || {}), JSON.stringify(m.metric_metadata || {}), m.reliability_score || 0
         ]
       );
 
@@ -400,12 +426,16 @@ export async function fetchAndStoreXbrlMetrics({ stock_id, ticker, bse_scrip_cod
 
       if (m.segments) {
         for (const s of m.segments) {
+          const revVal = s.metric === 'revenue' ? s.value : null;
+          const profitVal = s.metric === 'profit' ? s.value : null;
+          
           await client.query(
             `INSERT INTO xbrl_segments (stock_id, ticker, quarter, segment_name, revenue, profit_loss, xbrl_filing_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (stock_id, quarter, segment_name) DO UPDATE SET
-               revenue = EXCLUDED.revenue, profit_loss = EXCLUDED.profit_loss`,
-            [stock_id, ticker, m.quarter, s.segment_name, s.value, null, currentFilingId]
+               revenue = COALESCE(EXCLUDED.revenue, xbrl_segments.revenue),
+               profit_loss = COALESCE(EXCLUDED.profit_loss, xbrl_segments.profit_loss)`,
+            [stock_id, ticker, m.quarter, s.segment_name, revVal, profitVal, currentFilingId]
           );
         }
       }
@@ -432,28 +462,50 @@ export async function getXbrlMetricsForPrompt(stockId, limitToQuarter = null) {
 }
 
 export function formatXbrlQuarterForPrompt(row) {
-  const cr = (v) => v != null ? `₹${(v / 100).toFixed(1)} Cr` : "N/A";
+  const cr = (v) => v != null ? `₹${(v / 10000000).toFixed(2)} Cr` : "N/A";
   const pct = (v) => v != null ? `${v}%` : "N/A";
   const yoy = (v) => v != null ? ` (YoY: ${v > 0 ? "+" : ""}${v}%)` : "";
+  const src = (field) => {
+    const s = row.metric_sources?.[field];
+    if (s === 'xbrl') return "";
+    if (s === 'calculated') return " [CALCULATED]";
+    if (s === 'api') return " [API SUMMARY]";
+    return s ? ` [${s.toUpperCase()}]` : "";
+  };
 
   const lines = [
-    `Quarter: ${row.quarter} | Period: ${row.period_start_date || "?"}- ${row.period_end_date || "?"}`,
-    `Revenue from Ops: ${cr(row.revenue_from_ops)}${yoy(row.revenue_growth_yoy)}`,
-    `PAT: ${cr(row.pat)}${yoy(row.pat_growth_yoy)}`,
+    `Quarter: ${row.quarter} | Period: ${row.period_start_date || "?"} - ${row.period_end_date || "?"} | Source: ${row.source_preferred}`,
+    `Revenue: ${cr(row.revenue_from_ops)}${yoy(row.revenue_growth_yoy)}${src('revenue_from_ops')}`,
+    `PAT: ${cr(row.pat)}${yoy(row.pat_growth_yoy)}${src('pat')}`,
   ];
-  if (row.ebitda != null) lines.push(`EBITDA: ${cr(row.ebitda)} | Margin: ${pct(row.ebitda_margin_pct)}`);
+
+  if (row.ebitda != null) lines.push(`EBITDA: ${cr(row.ebitda)} | Margin: ${pct(row.ebitda_margin_pct)}${src('ebitda')}`);
   
   // BS Enrichment
-  if (row.receivables != null || row.inventory != null) {
-    lines.push(`Balance Sheet: Receivables: ${cr(row.receivables)} | Inventory: ${cr(row.inventory)} | Borrowings: ${cr(row.borrowings)}`);
+  if (row.receivables != null || row.inventory != null || row.trade_payables != null) {
+    const payStr = row.trade_payables != null ? ` | Payables: ${cr(row.trade_payables)}${src('trade_payables')}` : "";
+    lines.push(`Balance Sheet: Receivables: ${cr(row.receivables)}${src('receivables')} | Inventory: ${cr(row.inventory)}${src('inventory')}${payStr} | Borrowings: ${cr(row.borrowings)}${src('borrowings')}`);
+    
+    // Net Working Capital Analysis
+    const wcDays = Number(row.working_capital_days || 0);
+    let wcStatus = "Normal";
+    if (wcDays < 30) wcStatus = "Extremely Efficient (Negative/Low WC)";
+    else if (wcDays < 60) wcStatus = "Healthy";
+    else if (wcDays > 120) wcStatus = "Heavy (Cash Trap)";
+    else if (wcDays > 180) wcStatus = "CRITICAL (Severely Stretched)";
+
+    const nwc = row.net_working_capital ?? (row.receivables + row.inventory - (row.trade_payables || 0));
+    
+    lines.push(`Working Capital: Cycle: ${wcDays.toFixed(0)} days | Status: ${wcStatus} | Net Working Capital: ${cr(nwc)}`);
+    lines.push(`Derived Metrics: Rec. Days: ${Number(row.receivable_days || 0).toFixed(0)} | Inv. Days: ${Number(row.inventory_days || 0).toFixed(0)} | Pay. Days: ${Number(row.payable_days || 0).toFixed(0)} | Net Cash: ${cr(row.net_cash)}`);
   }
+
   // CF Enrichment
   if (row.cfo != null) {
-    lines.push(`Cash Flow: CFO: ${cr(row.cfo)} | Capex: ${cr(row.capex)}`);
+    lines.push(`Cash Flow: CFO: ${cr(row.cfo)}${src('cfo')} | Capex: ${cr(row.capex)}${src('capex')} | CFO/PAT: ${Number(row.cfo_pat_ratio || 0).toFixed(2)}`);
   }
   
-  if (row.finance_cost != null) lines.push(`Finance Cost: ${cr(row.finance_cost)}`);
-  if (row.debt_equity_ratio != null && row.debt_equity_ratio !== 0) lines.push(`Debt/Equity: ${row.debt_equity_ratio}`);
-
+  if (row.finance_cost != null) lines.push(`Finance Cost: ${cr(row.finance_cost)}${src('finance_cost')}`);
+  
   return lines.join("\n");
 }

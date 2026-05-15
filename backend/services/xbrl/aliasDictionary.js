@@ -28,7 +28,8 @@ export const ALIAS_MAP = {
   depreciation: [
     'DepreciationAndAmortisationExpense',
     'DepreciationExpense',
-    'AmortisationExpense'
+    'AmortisationExpense',
+    'DepreciationDepletionAndAmortisationExpense'
   ],
   tax: [
     'TaxExpense',
@@ -59,6 +60,8 @@ export const ALIAS_MAP = {
     'CashAndBankBalances'
   ],
   equity: [
+    'Equity',
+    'EquityAttributableToOwnersOfParent',
     'EquityShareCapital',
     'ShareCapital',
     'IssuedCapital'
@@ -73,6 +76,14 @@ export const ALIAS_MAP = {
     'PurchaseOfPropertyPlantAndEquipment',
     'AdditionsToPropertyPlantAndEquipment',
     'PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities'
+  ],
+  trade_payables: [
+    'TradePayables',
+    'TradePayablesCurrent',
+    'TradeAndOtherPayables',
+    'CurrentTradePayables',
+    'TradeAndOtherPayablesCurrent',
+    'TotalTradePayables'
   ]
 };
 

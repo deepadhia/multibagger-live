@@ -51,9 +51,10 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     - If it introduces a structural risk or invalidates a core thesis assumption, it is NEGATIVE.
     - If it is routine compliance or minor news with no thesis impact, it is NEUTRAL.
     - Be decisive. Only use NEUTRAL if there is truly no impact on the thesis.
+    - IMPORTANT: If the announcement is an Earnings Release/Financial Result, you MUST evaluate its numbers and management commentary against the investment thesis. Provide a strong POSITIVE or NEGATIVE impact unless it exactly meets expectations without any new information.
 
     ── Priority Rules ──
-    HIGH: Large orders (>10% of annual revenue), M&A / demergers / restructuring, management/auditor exits, capex >20% net worth, credit downgrades, regulatory actions (fines, bans, audits), Product Approvals (PESO, FDA, etc.), Patents, Licenses, Large contract wins, fraud/NCLT.
+    HIGH: Earnings Results / Financial Results, Large orders (>10% of annual revenue), M&A / demergers / restructuring, management/auditor exits, capex >20% net worth, credit downgrades, regulatory actions (fines, bans, audits), Product Approvals (PESO, FDA, etc.), Patents, Licenses, Large contract wins, fraud/NCLT.
     MEDIUM: Dividends, board meeting notices, credit rating reaffirmations, allotments, medium-sized orders, general business updates.
     LOW: Routine compliance filings, share certificate loss, voting results, AGM notices, window closure notices, newspaper publications.
 
