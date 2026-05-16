@@ -48,16 +48,20 @@ function getServiceAccountCredentials() {
 
 function getOAuthClientConfig() {
   // 1) Try JSON file path (local dev)
-  if (OAUTH_CLIENT_PATH && fs.existsSync(OAUTH_CLIENT_PATH)) {
-    try {
-      const raw = fs.readFileSync(OAUTH_CLIENT_PATH, "utf8");
-      const data = JSON.parse(raw);
-      const client = data.web || data.installed;
-      if (client?.client_id && client?.client_secret) {
-        return { clientId: client.client_id, clientSecret: client.client_secret };
+  if (OAUTH_CLIENT_PATH) {
+    if (fs.existsSync(OAUTH_CLIENT_PATH)) {
+      try {
+        const raw = fs.readFileSync(OAUTH_CLIENT_PATH, "utf8");
+        const data = JSON.parse(raw);
+        const client = data.web || data.installed;
+        if (client?.client_id && client?.client_secret) {
+          return { clientId: client.client_id, clientSecret: client.client_secret };
+        }
+      } catch (e) {
+        console.error("[Drive Debug] Failed to parse client_secret.json:", e.message);
       }
-    } catch (e) {
-      console.error("[Drive Debug] Failed to parse client_secret.json:", e.message);
+    } else {
+      console.warn("[Drive Debug] OAUTH_CLIENT_PATH does not exist:", OAUTH_CLIENT_PATH);
     }
   }
 
@@ -448,7 +452,8 @@ function getDriveStatus() {
   return { 
     driveConfigured: configured, 
     needsConnect,
-    isOAuthConfigured: oauthClientAndFolder 
+    isOAuthConfigured: oauthClientAndFolder,
+    oauthPath: OAUTH_CLIENT_PATH
   };
 }
 
