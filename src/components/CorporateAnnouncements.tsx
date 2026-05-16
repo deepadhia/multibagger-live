@@ -104,7 +104,7 @@ export function CorporateAnnouncements({ stockId }: { stockId: string }) {
   }
 
   // Show strictly the latest 10 items by default
-  const initialDisplayCount = 10;
+  const initialDisplayCount = 20;
   
   const displayedAnnouncements = showAll ? announcements : announcements.slice(0, initialDisplayCount);
   const hasMore = announcements.length > displayedAnnouncements.length;
