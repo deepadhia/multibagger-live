@@ -8,9 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, FileText, Upload, CheckCircle2, AlertTriangle, Edit3 } from "lucide-react";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { Loader2, FileText, Upload, CheckCircle2, AlertTriangle, Edit3, RefreshCw } from "lucide-react";
 import { GoogleDriveStatus } from "@/components/GoogleDriveStatus";
+import { apiFetch, apiUrl } from "@/lib/apiFetch";
 
 interface GeminiPayload {
   quarterly_snapshot: {
@@ -41,6 +42,16 @@ export default function TranscriptsPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ snapshots: number; promisesUpdated: number; promisesCreated: number } | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
+
+  const { data: driveStatusData } = useQuery({
+    queryKey: ["transcripts-drive-status"],
+    queryFn: async () => {
+      const r = await apiFetch(apiUrl("/api/transcripts/drive-status"), { cache: "no-store" });
+      if (!r.ok) return { driveConfigured: false, needsConnect: false, isOAuthConfigured: false };
+      return r.json();
+    },
+    staleTime: 30000,
+  });
 
   const parseJson = (raw: string): GeminiPayload | null => {
     try {
@@ -151,6 +162,15 @@ export default function TranscriptsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="font-mono text-xs border-terminal-amber/50 text-terminal-amber"
+              onClick={() => { window.location.href = apiUrl("/api/auth/drive/start"); }}
+            >
+              <RefreshCw className="h-3.5 w-3.5 mr-1" />
+              Reconnect Google Drive (Force)
+            </Button>
             <GoogleDriveStatus />
           </div>
         </div>
@@ -292,29 +312,37 @@ export default function TranscriptsPage() {
         {/* Result */}
         {result && (
           <Card className="p-4 bg-card border-border card-glow">
-            <div className="flex items-center gap-2 mb-3">
-              <CheckCircle2 className="h-4 w-4 text-primary" />
-              <h3 className="font-mono text-xs uppercase tracking-wider text-primary terminal-glow">
-                Import Successful
-              </h3>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center">
-                <p className="text-2xl font-mono font-bold text-foreground">{result.snapshots}</p>
-                <p className="text-xs text-muted-foreground">Snapshot Saved</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-mono font-bold text-foreground">{result.promisesCreated}</p>
-                <p className="text-xs text-muted-foreground">New Promises</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-mono font-bold text-foreground">{result.promisesUpdated}</p>
-                <p className="text-xs text-muted-foreground">Promises Updated</p>
-              </div>
-            </div>
+            {/* ... */}
           </Card>
         )}
+
+        <div className="mt-8 pt-8 border-t border-border/20">
+          <p className="font-mono text-[10px] text-muted-foreground uppercase mb-2">Drive System Health (Debug)</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <DebugInfo label="Configured" value={driveStatusData?.driveConfigured} />
+            <DebugInfo label="Needs Connect" value={driveStatusData?.needsConnect} />
+            <DebugInfo label="OAuth Set" value={driveStatusData?.isOAuthConfigured} />
+            <DebugInfo label="API Ready" value={!!driveStatusData} />
+          </div>
+          {driveStatusData?.oauthPath && (
+            <div className="bg-muted/20 p-2 rounded font-mono text-[9px] text-muted-foreground break-all border border-border/30">
+              <span className="text-primary mr-2">OAUTH_PATH:</span>
+              {driveStatusData.oauthPath}
+            </div>
+          )}
+        </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+function DebugInfo({ label, value }: { label: string; value: any }) {
+  return (
+    <div className="bg-muted/30 p-2 rounded border border-border/50">
+      <p className="text-[9px] font-mono text-muted-foreground uppercase">{label}</p>
+      <p className={`text-xs font-mono font-bold ${value ? "text-terminal-green" : "text-terminal-red"}`}>
+        {value === true ? "YES" : value === false ? "NO" : "NULL"}
+      </p>
+    </div>
   );
 }

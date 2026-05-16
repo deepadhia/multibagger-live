@@ -87,13 +87,14 @@ export async function uploadToDriveHandler(req, res) {
 
 export function driveStatusHandler(_req, res) {
   try {
-    const { driveConfigured, needsConnect, isOAuthConfigured } = getDriveStatus();
+    const { driveConfigured, needsConnect, isOAuthConfigured, oauthPath } = getDriveStatus();
     res.set("Cache-Control", "no-store");
     res.json({ 
       ok: true, 
       driveConfigured, 
       needsConnect: needsConnect || false,
-      isOAuthConfigured: isOAuthConfigured || false
+      isOAuthConfigured: isOAuthConfigured || false,
+      oauthPath
     });
   } catch {
     res.json({ ok: true, driveConfigured: false, needsConnect: false, isOAuthConfigured: false });

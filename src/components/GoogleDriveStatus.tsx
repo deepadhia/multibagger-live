@@ -19,8 +19,7 @@ export function GoogleDriveStatus() {
 
   const { driveConfigured, needsConnect, isOAuthConfigured } = data || {};
 
-  // If OAuth is not even set in env, don't show anything
-  if (!isOAuthConfigured) return null;
+  // if (!isOAuthConfigured) return null;
 
   return (
     <TooltipProvider>
