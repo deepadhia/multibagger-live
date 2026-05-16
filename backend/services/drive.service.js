@@ -19,6 +19,9 @@ const OAUTH_CLIENT_PATH = process.env.GOOGLE_OAUTH_CLIENT_JSON_PATH
     : path.resolve(process.cwd(), process.env.GOOGLE_OAUTH_CLIENT_JSON_PATH)
   : "";
 const OAUTH_TOKENS_PATH = path.resolve(__dirname, "../secrets/drive-oauth-tokens.json");
+// Must match the redirect_uri used during the original OAuth consent screen
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
+const OAUTH_REDIRECT_URI = `${BACKEND_URL}/api/auth/drive/callback`;
 
 const DRIVE_UPLOAD_FOLDER_NAME = "Announcements";
 
@@ -109,10 +112,12 @@ async function getDriveClientFromOAuth() {
     throw new Error("Google Drive: GOOGLE_DRIVE_FOLDER_ID is not set (folder in your My Drive).");
   }
 
+  // IMPORTANT: redirect_uri must match the one used during the original OAuth consent flow.
+  // Using 'oob' here was causing invalid_grant on token refresh.
   const oauth2Client = new google.auth.OAuth2(
     config.clientId,
     config.clientSecret,
-    "urn:ietf:wg:oauth:2.0:oob"
+    OAUTH_REDIRECT_URI
   );
   oauth2Client.setCredentials({
     refresh_token: tokens.refresh_token,
@@ -120,28 +125,43 @@ async function getDriveClientFromOAuth() {
     expiry_date: tokens.expiry_date || undefined,
   });
 
-  const { credentials } = await oauth2Client.refreshAccessToken();
+  let credentials;
+  try {
+    ({ credentials } = await oauth2Client.refreshAccessToken());
+  } catch (err) {
+    const isRevoked =
+      err?.message?.includes("invalid_grant") ||
+      err?.response?.data?.error === "invalid_grant";
+    if (isRevoked) {
+      // Clear the stale token file so isDriveConfigured() returns false
+      try { fs.unlinkSync(OAUTH_TOKENS_PATH); } catch (_) {}
+      throw new Error(
+        "Google Drive token has expired or been revoked (invalid_grant). " +
+        "Please reconnect: click 'Connect Google Drive' in the app settings."
+      );
+    }
+    throw err;
+  }
+
   if (credentials.access_token) {
     oauth2Client.setCredentials(credentials);
-    if (credentials.refresh_token || tokens.refresh_token) {
-      try {
-        const dir = path.dirname(OAUTH_TOKENS_PATH);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(
-          OAUTH_TOKENS_PATH,
-          JSON.stringify(
-            {
-              refresh_token: credentials.refresh_token || tokens.refresh_token,
-              access_token: credentials.access_token,
-              expiry_date: credentials.expiry_date,
-            },
-            null,
-            2
-          ),
-          "utf8"
-        );
-      } catch (_) {}
-    }
+    try {
+      const dir = path.dirname(OAUTH_TOKENS_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        OAUTH_TOKENS_PATH,
+        JSON.stringify(
+          {
+            refresh_token: credentials.refresh_token || tokens.refresh_token,
+            access_token: credentials.access_token,
+            expiry_date: credentials.expiry_date,
+          },
+          null,
+          2
+        ),
+        "utf8"
+      );
+    } catch (_) {}
   }
 
   return google.drive({ version: "v3", auth: oauth2Client });
