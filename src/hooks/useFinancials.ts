@@ -1,5 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { apiFetch } from "@/lib/apiFetch";
+
+export function useXbrlMetrics(stockId: string) {
+  return useQuery({
+    queryKey: ["xbrl-metrics", stockId],
+    queryFn: async () => {
+      const response = await apiFetch(`/api/xbrl/metrics/${stockId}`);
+      if (!response.ok) throw new Error("Failed to fetch XBRL metrics");
+      return response.json();
+    },
+    enabled: !!stockId,
+  });
+}
 
 export function useFinancialMetrics(stockId: string) {
   return useQuery({

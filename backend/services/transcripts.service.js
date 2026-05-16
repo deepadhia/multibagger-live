@@ -18,9 +18,10 @@ import {
 import { pool } from "../db/pool.js";
 import { deleteDriveFile, isDriveConfigured, uploadAnnouncementsToDrive } from "./drive.service.js";
 import { logger } from "../utils/logger.js";
+import { fetchAndStoreXbrlMetrics } from "./xbrl.service.js";
 
 const LOG = "Transcripts";
-const WINDOW_TO_QUARTERS = { "6m": 2, "1y": 4, "2y": 8, "3q": 3 };
+const WINDOW_TO_QUARTERS = { "6m": 2, "1y": 4, "2y": 8, "3y": 12, "3q": 3 };
 
 /** Expected quarter labels for the window (e.g. 1y -> last 4 quarters from current). */
 function getExpectedQuarters(window) {
@@ -51,7 +52,7 @@ function getExpectedQuarters(window) {
 /** For each symbol, return list of { quarter, missing: string[] } (missing categories: earnings_result, investor_presentation, concall_transcript). */
 function getMissingPerSymbol(dataDir, tickers, window) {
   const expectedQuarters = getExpectedQuarters(window);
-  const required = FILING_CATEGORIES;
+  const required = FILING_CATEGORIES; // includes raw_xbrl now
   const result = new Map();
 
   for (const symbol of tickers) {
@@ -145,6 +146,23 @@ export async function downloadTranscriptsPipeline({
 
   await runMerge({ window, dataDir });
 
+  // Trigger XBRL extraction for all processed stocks
+  for (const symbol of tickers) {
+    try {
+      const { rows: stockRows } = await pool.query("SELECT id, bse_scrip_code FROM stocks WHERE UPPER(ticker) = $1", [symbol.toUpperCase()]);
+      if (stockRows[0]) {
+        logger.info(LOG, `Triggering XBRL extraction for ${symbol}`);
+        await fetchAndStoreXbrlMetrics({
+          stock_id: stockRows[0].id,
+          ticker: symbol,
+          bse_scrip_code: stockRows[0].bse_scrip_code
+        });
+      }
+    } catch (e) {
+      logger.error(LOG, `Failed to trigger XBRL extraction for ${symbol}: ${e.message}`);
+    }
+  }
+
   const { ok, report } = verifyOutput(dataDir);
 
   let uploadResult = { uploaded: 0, errors: [] };
@@ -175,18 +193,19 @@ const CATEGORY_LABELS = {
   earnings_result: "Earnings result",
   concall_transcript: "Concall transcript",
   investor_presentation: "Investor presentation",
+  raw_xbrl: "XBRL Data",
 };
 
 function getCategoryAndLabel(filename) {
-  const base = path.basename(filename, ".pdf");
-  const lower = base.toLowerCase();
+  const ext = path.extname(filename);
+  const base = path.basename(filename, ext);
+  const lower = filename.toLowerCase();
   
   let category = "other";
-  // The filename format from Node downloader is: 
-  // TICKER_FYXX-QX_category_YYYY-MM-DD_screener.pdf
   if (lower.includes("concall_transcript")) category = "concall_transcript";
   else if (lower.includes("earnings_result")) category = "earnings_result";
   else if (lower.includes("investor_presentation")) category = "investor_presentation";
+  else if (lower.includes("raw_xbrl") || ext === ".xml") category = "raw_xbrl";
 
   const label = CATEGORY_LABELS[category] || base.replace(/_/g, " ");
   return { category, label };
@@ -209,54 +228,53 @@ export async function listDownloadedFilesForSymbol(symbol) {
   const normalized = String(symbol || "").toUpperCase();
   const dataDir = getDataDir();
   const symbolDir = path.join(dataDir, normalized);
-
-  if (!fs.existsSync(symbolDir) || !fs.statSync(symbolDir).isDirectory()) {
-    return { symbol: normalized, files: [] };
-  }
-
   const files = [];
+  const symbolDirExists = fs.existsSync(symbolDir) && fs.statSync(symbolDir).isDirectory();
 
-  for (const quarterName of fs.readdirSync(symbolDir)) {
-    const quarterDir = path.join(symbolDir, quarterName);
-    if (!fs.statSync(quarterDir).isDirectory()) continue;
+  if (symbolDirExists) {
+    for (const quarterName of fs.readdirSync(symbolDir)) {
+      const quarterDir = path.join(symbolDir, quarterName);
+      if (!fs.statSync(quarterDir).isDirectory()) continue;
 
-    const entries = fs.readdirSync(quarterDir).filter((f) =>
-      f.toLowerCase().endsWith(".pdf"),
-    );
-
-    for (const filename of entries) {
-      const meta = readMetaForFile(quarterDir, filename);
-      // Categorisation: use meta.json category when present, else infer from filename (earnings_result, concall_transcript, investor_presentation)
-      const fromMeta = meta?.category && ["earnings_result", "concall_transcript", "investor_presentation"].includes(meta.category)
-        ? meta.category
-        : null;
-      const { category, label } = fromMeta
-        ? { category: fromMeta, label: CATEGORY_LABELS[fromMeta] || fromMeta }
-        : getCategoryAndLabel(filename);
-      let announcementDate = meta?.announcement_date || meta?.sort_date || null;
-      // Screener files often have empty meta; parse YYYY-MM-DD from filename (e.g. *_2026-03-15_screener.pdf)
-      if (!announcementDate && /_\d{4}-\d{2}-\d{2}_/.test(filename)) {
-        const match = filename.match(/_(\d{4}-\d{2}-\d{2})_/);
-        if (match) announcementDate = match[1];
-      }
-      // Fallback: file mtime as ISO date
-      if (!announcementDate) {
-        try {
-          const stat = fs.statSync(path.join(quarterDir, filename));
-          if (stat.mtime) announcementDate = stat.mtime.toISOString().slice(0, 10);
-        } catch (_) {}
-      }
-
-      files.push({
-        symbol: normalized,
-        quarter: quarterName,
-        filename,
-        category,
-        label,
-        announcement_date: announcementDate || undefined,
-        description: meta?.description || undefined,
-        url: `/files/${normalized}/${quarterName}/${filename}`,
+      const entries = fs.readdirSync(quarterDir).filter((f) => {
+        const ext = f.toLowerCase();
+        return ext.endsWith(".pdf") || ext.endsWith(".xml");
       });
+
+      for (const filename of entries) {
+        const meta = readMetaForFile(quarterDir, filename);
+        // Categorisation: use meta.json category when present, else infer from filename (earnings_result, concall_transcript, investor_presentation)
+        const fromMeta = meta?.category && ["earnings_result", "concall_transcript", "investor_presentation"].includes(meta.category)
+          ? meta.category
+          : null;
+        const { category, label } = fromMeta
+          ? { category: fromMeta, label: CATEGORY_LABELS[fromMeta] || fromMeta }
+          : getCategoryAndLabel(filename);
+        let announcementDate = meta?.announcement_date || meta?.sort_date || null;
+        // Screener files often have empty meta; parse YYYY-MM-DD from filename (e.g. *_2026-03-15_screener.pdf)
+        if (!announcementDate && /_\d{4}-\d{2}-\d{2}_/.test(filename)) {
+          const match = filename.match(/_(\d{4}-\d{2}-\d{2})_/);
+          if (match) announcementDate = match[1];
+        }
+        // Fallback: file mtime as ISO date
+        if (!announcementDate) {
+          try {
+            const stat = fs.statSync(path.join(quarterDir, filename));
+            if (stat.mtime) announcementDate = stat.mtime.toISOString().slice(0, 10);
+          } catch (_) {}
+        }
+
+        files.push({
+          symbol: normalized,
+          quarter: quarterName,
+          filename,
+          category,
+          label,
+          announcement_date: announcementDate || undefined,
+          description: meta?.description || undefined,
+          url: `/files/${normalized}/${quarterName}/${filename}`,
+        });
+      }
     }
   }
 

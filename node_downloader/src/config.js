@@ -28,6 +28,7 @@ export const HISTORY_WINDOWS = {
   "6m": 182,
   "1y": 365,
   "2y": 730,
+  "3y": 1095,
   "3q": 3 * 92,
 };
 

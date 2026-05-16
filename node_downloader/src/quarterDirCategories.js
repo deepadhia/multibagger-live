@@ -10,6 +10,7 @@ export const FILING_CATEGORIES = [
   "earnings_result",
   "investor_presentation",
   "concall_transcript",
+  "raw_xbrl",
 ];
 
 /**
@@ -31,11 +32,19 @@ export function getCategoriesPresentInQuarterDir(quarterDir, metaArray = []) {
     const st = fs.statSync(quarterDir);
     if (!st.isDirectory()) return found;
     for (const name of fs.readdirSync(quarterDir)) {
-      if (!name.toLowerCase().endsWith(".pdf")) continue;
       const lower = name.toLowerCase();
-      for (const cat of FILING_CATEGORIES) {
-        if (lower.includes(`_${cat}_`) || name.startsWith(`${cat}_`)) {
-          found.add(cat);
+      // Handle PDFs
+      if (lower.endsWith(".pdf")) {
+        for (const cat of FILING_CATEGORIES) {
+          if (lower.includes(`_${cat}_`) || name.startsWith(`${cat}_`)) {
+            found.add(cat);
+          }
+        }
+      }
+      // Handle XBRL (XML or ZIP)
+      if (lower.endsWith(".xml") || lower.endsWith(".zip")) {
+        if (lower.includes("_xbrl") || lower.includes("xbrl_")) {
+          found.add("raw_xbrl");
         }
       }
     }

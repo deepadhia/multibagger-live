@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { useStock, useStockAnalysis, useStockCommitments, useManagementPromises, useQuarterlySnapshots } from "@/hooks/useStocks";
-import { useFinancialMetrics, useFinancialResults, useStockPrices, useShareholding, usePeerComparison } from "@/hooks/useFinancials";
+import { useFinancialMetrics, useFinancialResults, useStockPrices, useShareholding, usePeerComparison, useXbrlMetrics } from "@/hooks/useFinancials";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from "@/components/ui/separator";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Input } from "@/components/ui/input";
 import { SentimentBadge } from "@/components/SentimentBadge";
@@ -23,6 +24,7 @@ import { ThesisTimeline } from "@/components/ThesisTimeline";
 import { ManagementCredibility } from "@/components/ManagementCredibility";
 import { ThesisDriftAlert } from "@/components/ThesisDriftAlert";
 import { SnapshotThesisBadge } from "@/components/SnapshotThesisBadge";
+import { CorporateAnnouncements } from "@/components/CorporateAnnouncements";
 import { detectMultibaggerSignals, calculateThesisScore, getThesisStatus } from "@/lib/signals";
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area, ComposedChart,
@@ -35,8 +37,11 @@ import { apiFetch, apiUrl } from "@/lib/apiFetch";
 import {
   RefreshCw, Loader2, TrendingUp, TrendingDown,
   ArrowUpRight, ArrowDownRight, Target, AlertTriangle, Zap, Quote,
-  BarChart3, Activity, Shield, FileText, Users, Briefcase, ExternalLink, Trash2,
+  BarChart3, Activity, Shield, FileText, Users, Briefcase, ExternalLink, Trash2, Newspaper, PieChart
 } from "lucide-react";
+import { QuarterlyMetricsTab } from "@/components/QuarterlyMetricsTab";
+import { DecisionAlpha } from "@/components/DecisionAlpha";
+
 
 const chartTooltipStyle = {
   background: "hsl(220 18% 9%)",
@@ -101,6 +106,7 @@ export default function StockDetailPage() {
   const { data: peers } = usePeerComparison(id!);
   const { data: promises } = useManagementPromises(id!);
   const { data: snapshots } = useQuarterlySnapshots(id!);
+  const { data: xbrlMetrics } = useXbrlMetrics(id!);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [fetchingScreenerData, setFetchingScreenerData] = useState(false);
@@ -653,6 +659,11 @@ export default function StockDetailPage() {
           </Card>
         </div>
 
+        {/* ── DECISION ALPHA LAYER ── */}
+        {xbrlMetrics && xbrlMetrics.length > 0 && (
+          <DecisionAlpha alphaSignals={xbrlMetrics[0].alpha_signals} />
+        )}
+
         {/* ── MAIN TABBED CONTENT ── */}
         <Tabs defaultValue="overview" className="w-full min-w-0">
           <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] rounded-md [scrollbar-width:thin]">
@@ -682,6 +693,9 @@ export default function StockDetailPage() {
             </TabsTrigger>
             <TabsTrigger value="announcements" className="font-mono text-xs gap-1.5">
               <FileText className="h-3 w-3" /> Announcements
+            </TabsTrigger>
+            <TabsTrigger value="quarterly" className="font-mono text-xs gap-1.5">
+              <PieChart className="h-3 w-3" /> Quarterly Metrics
             </TabsTrigger>
             </TabsList>
           </div>
@@ -1276,325 +1290,190 @@ export default function StockDetailPage() {
           </TabsContent>
 
           {/* ═══ ANNOUNCEMENTS TAB ═══ */}
-          <TabsContent value="announcements" className="space-y-4 mt-4">
-            <Card className="p-4 bg-card border-border card-glow min-w-0 overflow-hidden">
-              <div className="flex flex-col gap-3 mb-3 sm:flex-row sm:items-start sm:justify-between">
-                <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground min-w-0">
-                  Downloaded filings — earnings, concall transcripts, investor presentations
+          <TabsContent value="announcements" className="space-y-6 mt-4">
+            {/* ── Section 1: Live News Feed ── */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 px-1">
+                <Newspaper className="h-4 w-4 text-primary" />
+                <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-foreground">
+                  Live News Feed (NSE/BSE)
                 </h3>
-                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end sm:max-w-none">
-                  {(!driveConfigured || needsConnect) && (
+              </div>
+              <CorporateAnnouncements stockId={id!} />
+            </div>
+
+            <Separator className="bg-border/40" />
+
+            {/* ── Section 2: Official Filings (PDFs) ── */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 px-1">
+                <FileText className="h-4 w-4 text-primary" />
+                <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-foreground">
+                  Official Filings (PDFs)
+                </h3>
+              </div>
+              
+              <Card className="p-4 bg-card border-border card-glow min-w-0 overflow-hidden">
+                <div className="flex flex-col gap-3 mb-3 sm:flex-row sm:items-start sm:justify-between">
+                  <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground min-w-0">
+                    Downloaded filings — earnings, concall transcripts, investor presentations
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end sm:max-w-none">
+                    {(!driveConfigured || needsConnect) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="font-mono text-xs shrink-0"
+                        onClick={() => { window.location.href = apiUrl("/api/auth/drive/start"); }}
+                      >
+                        <ExternalLink className="h-3 w-3 mr-1" />
+                        Connect Google Drive
+                      </Button>
+                    )}
+                    {driveConfigured && (
+                      <>
+                        {filings.length > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleUploadToDrive}
+                            disabled={uploadingToDrive}
+                            className="font-mono text-xs shrink-0"
+                          >
+                            {uploadingToDrive ? <Loader2 className="h-3 w-3 animate-spin" /> : <ExternalLink className="h-3 w-3" />}
+                            <span className="ml-1">Upload to Drive</span>
+                          </Button>
+                        )}
+                        {lastUploadErrors && lastUploadErrors.length > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleUploadToDrive}
+                            disabled={uploadingToDrive}
+                            className="font-mono text-xs border-terminal-amber/50 text-terminal-amber hover:bg-terminal-amber/10 shrink-0"
+                          >
+                            {uploadingToDrive ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                            <span className="ml-1">Retry failed ({lastUploadErrors.length})</span>
+                          </Button>
+                        )}
+                      </>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
-                      className="font-mono text-xs shrink-0"
-                      onClick={() => { window.location.href = apiUrl("/api/auth/drive/start"); }}
-                    >
-                      <ExternalLink className="h-3 w-3 mr-1" />
-                      Connect Google Drive
-                    </Button>
-                  )}
-                  {driveConfigured && (
-                    <>
-                      {filings.length > 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleUploadToDrive}
-                          disabled={uploadingToDrive}
-                          className="font-mono text-xs shrink-0"
-                        >
-                          {uploadingToDrive ? <Loader2 className="h-3 w-3 animate-spin" /> : <ExternalLink className="h-3 w-3" />}
-                          <span className="ml-1">Upload to Drive</span>
-                        </Button>
-                      )}
-                      {lastUploadErrors && lastUploadErrors.length > 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleUploadToDrive}
-                          disabled={uploadingToDrive}
-                          className="font-mono text-xs border-terminal-amber/50 text-terminal-amber hover:bg-terminal-amber/10 shrink-0"
-                        >
-                          {uploadingToDrive ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                          <span className="ml-1">Retry failed ({lastUploadErrors.length})</span>
-                        </Button>
-                      )}
-                    </>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={fetchingFilingsForStock || !stock?.ticker}
-                    onClick={async () => {
-                      if (!stock?.ticker) return;
-                      setFetchingFilingsForStock(true);
-                      try {
-                        const r = await apiFetch("/api/transcripts/download", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            symbols: [stock.ticker],
-                            window: "1y",
-                            onlyMissing: true,
-                            uploadAfterDownload: false,
-                            useWatchlist: false,
-                          }),
-                        });
-                        const data = await r.json().catch(() => ({}));
-                        if (!r.ok || !data?.ok) {
-                          throw new Error(data?.error || `Request failed: ${r.status}`);
-                        }
-                        // Refresh listings for this stock after successful fetch
-                        await queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
-                        toast({
-                          title: "Filings fetched",
-                          description: `Fetched latest filings for ${stock.ticker}`,
-                        });
-                      } catch (err) {
-                        toast({
-                          title: "Fetch filings failed",
-                          description: err instanceof Error ? err.message : "Unknown error",
-                          variant: "destructive",
-                        });
-                      } finally {
-                        setFetchingFilingsForStock(false);
-                      }
-                    }}
-                    className="font-mono text-xs shrink-0"
-                  >
-                    {fetchingFilingsForStock ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
-                    <span className="ml-1">Fetch for this stock</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={filingsLoading || !stock?.ticker}
-                    onClick={async () => {
-                      if (!stock?.ticker) return;
-                      await queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
-                      const result = await refetchFilings();
-                      if (result.data?.ok && Array.isArray(result.data.files)) {
-                        const n = result.data.files.length;
-                        toast({
-                          title: "Refreshed",
-                          description: n > 0 ? `${n} filing(s) listed.` : "No filings in data folder. Use “Fetch filings” in the header to fetch.",
-                        });
-                      } else if (result.error) {
-                        toast({ title: "Refresh failed", description: String(result.error), variant: "destructive" });
-                      }
-                    }}
-                    className="font-mono text-xs shrink-0"
-                  >
-                    {filingsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                    <span className="ml-1">Refresh</span>
-                  </Button>
-                  <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
-                    <span className="font-mono text-[10px] text-muted-foreground shrink-0">Reset:</span>
-                    {(["3m", "6m", "1y"] as const).map((p) => (
-                      <Button
-                        key={p}
-                        variant="outline"
-                        size="sm"
-                        disabled={resettingFiles || filings.length === 0}
-                        onClick={() => handleResetFiles(p)}
-                        className="font-mono text-[10px] border-terminal-red/40 text-terminal-red hover:bg-terminal-red/10 shrink-0"
-                      >
-                        {resettingFiles ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                        {p === "3m" ? "3 mo" : p === "6m" ? "6 mo" : "1 yr"}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              {filingsLoading ? (
-                <div className="flex items-center justify-center py-12 text-muted-foreground font-mono text-sm">
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading…
-                </div>
-              ) : filings.length === 0 ? (
-                <div className="py-12 text-center text-muted-foreground font-mono text-sm">
-                  No announcements yet. Use <strong>Fetch filings</strong> in the header to download for all watchlist stocks and upload to Drive.
-                </div>
-              ) : (
-                <>
-                  {/* Category filter chips */}
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {[
-                      { value: null, label: "All" },
-                      { value: "earnings_result", label: "Earnings result" },
-                      { value: "concall_transcript", label: "Concall transcript" },
-                      { value: "investor_presentation", label: "Investor presentation" },
-                    ].map(({ value, label }) => (
-                      <button
-                        key={label}
-                        type="button"
-                        onClick={() => setAnnouncementCategoryFilter(value)}
-                        className={`rounded-full px-3 py-1 font-mono text-xs border transition-colors ${
-                          announcementCategoryFilter === value
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {/* Accordion by quarter */}
-                  {(() => {
-                    const filtered = announcementCategoryFilter
-                      ? filings.filter((f: { category: string }) => f.category === announcementCategoryFilter)
-                      : filings;
-                    const byQuarter = filtered.reduce((acc: Record<string, typeof filings>, f: { quarter?: string }) => {
-                      const q = f.quarter ?? "";
-                      if (!q) return acc;
-                      if (!acc[q]) acc[q] = [];
-                      acc[q].push(f);
-                      return acc;
-                    }, {});
-                    const quarters = Object.keys(byQuarter).sort();
-                    const categoryLabels: Record<string, string> = {
-                      earnings_result: "Earnings result",
-                      concall_transcript: "Concall transcript",
-                      investor_presentation: "Investor presentation",
-                      other: "Other",
-                    };
-                    return (
-                      <Accordion
-                        type="multiple"
-                        className="w-full"
-                        defaultValue={quarters.length > 0 ? [quarters[0]] : []}
-                      >
-                        {quarters.map((q) => {
-                          const categoryOrder = ["earnings_result", "concall_transcript", "investor_presentation", "other"];
-                          const items = [...byQuarter[q]].sort((a: { category?: string }, b: { category?: string }) => {
-                            const i = categoryOrder.indexOf(a.category ?? "other");
-                            const j = categoryOrder.indexOf(b.category ?? "other");
-                            return (i === -1 ? 99 : i) - (j === -1 ? 99 : j);
+                      onClick={async () => {
+                        const result = await refetchFilings();
+                        if (result.data?.ok && Array.isArray(result.data.files)) {
+                          const n = result.data.files.length;
+                          toast({
+                            title: "Refreshed",
+                            description: n > 0 ? `${n} filing(s) listed.` : "No filings in data folder.",
                           });
-                          return (
-                            <AccordionItem key={q} value={q}>
-                              <AccordionTrigger className="font-mono text-sm hover:no-underline min-w-0 text-left [&>svg]:shrink-0">
-                                {q}
-                                <span className="ml-2 text-muted-foreground font-normal">
-                                  ({items.length} file{items.length !== 1 ? "s" : ""})
-                                </span>
-                              </AccordionTrigger>
-                              <AccordionContent>
-                                <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] -mx-1 px-1 sm:mx-0 sm:px-0">
-                                <table className="w-full min-w-[520px] text-sm">
-                                  <thead>
-                                    <tr className="border-b border-border/50">
-                                      <th className="text-left py-1.5 pr-2 text-muted-foreground font-mono text-[10px] uppercase tracking-wider whitespace-nowrap">Category</th>
-                                      <th className="text-left py-1.5 pr-2 text-muted-foreground font-mono text-[10px] uppercase tracking-wider min-w-[120px]">Name</th>
-                                      <th className="text-left py-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">Date</th>
-                                      <th className="text-right py-1.5 pl-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground whitespace-nowrap">Actions</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {items.map((f: { quarter?: string; category?: string; label?: string; filename: string; announcement_date?: string; url?: string | null; drive_web_link?: string; drive_file_id?: string }) => {
-                                      const driveDl = driveDirectDownloadUrl(f);
-                                      const hasLocalFile = Boolean(f.url);
-                                      const localUrl = f.url ? apiUrl(f.url) : null;
-                                      const canDownload = hasLocalFile || Boolean(driveDl);
-                                      return (
-                                      <tr key={`${f.quarter ?? q}-${f.filename}`} className="border-b border-border/50 hover:bg-muted/30">
-                                        <td className="py-1.5 pr-2">
-                                          <Badge variant="outline" className="font-mono text-[10px]">
-                                            {categoryLabels[f.category ?? ""] ?? f.label ?? f.category ?? "—"}
-                                          </Badge>
-                                        </td>
-                                        <td className="py-1.5 pr-2 text-foreground max-w-[280px] truncate" title={f.filename}>
-                                          {f.filename}
-                                        </td>
-                                        <td className="py-1.5 font-mono text-[10px] text-muted-foreground whitespace-nowrap">
-                                          {f.announcement_date ?? "—"}
-                                        </td>
-                                        <td className="py-1.5 text-right">
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="font-mono text-xs h-6"
-                                            onClick={() => {
-                                              const driveUrl = f.drive_web_link || (f.drive_file_id ? `https://drive.google.com/file/d/${f.drive_file_id}/view` : null);
-                                              const openUrl = driveUrl || localUrl;
-                                              if (openUrl) window.open(openUrl, "_blank", "noopener,noreferrer");
-                                            }}
-                                          >
-                                            <ExternalLink className="h-3 w-3 mr-1" /> Open
-                                          </Button>
-                                          {canDownload && (
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              className="font-mono text-xs h-6 ml-1"
-                                              title={driveDl ? "Download via Google Drive" : "Download from app server"}
-                                              onClick={async () => {
-                                                if (driveDl) {
-                                                  openInNewTab(driveDl);
-                                                  return;
-                                                }
+                        }
+                      }}
+                      className="font-mono text-xs shrink-0"
+                    >
+                      {filingsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                      <span className="ml-1">Refresh</span>
+                    </Button>
+                  </div>
+                </div>
 
-                                                if (hasLocalFile && localUrl) {
-                                                  try {
-                                                    const response = await fetch(localUrl, { credentials: "include" });
-                                                    if (!response.ok) throw new Error(`Local file unavailable (${response.status})`);
-                                                    const blob = await response.blob();
-                                                    downloadBlob(blob, f.filename);
-                                                    return;
-                                                  } catch {
-                                                    toast({
-                                                      title: "Download failed",
-                                                      description: "Local file is unavailable.",
-                                                      variant: "destructive",
-                                                    });
-                                                    return;
-                                                  }
-                                                }
-                                              }}
-                                            >
-                                              Download
-                                            </Button>
+                {filingsLoading ? (
+                  <div className="flex items-center justify-center py-12 text-muted-foreground font-mono text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading…
+                  </div>
+                ) : filings.length === 0 ? (
+                  <div className="py-12 text-center text-muted-foreground font-mono text-sm">
+                    No announcements yet. <strong>Fetch filings (3yr)</strong> to download historical PDFs and XBRLs.
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {[
+                        { value: null, label: "All" },
+                        { value: "earnings_result", label: "Earnings" },
+                        { value: "concall_transcript", label: "Concalls" },
+                        { value: "investor_presentation", label: "Presentations" },
+                        { value: "raw_xbrl", label: "XBRL Files" },
+                      ].map(({ value, label }) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setAnnouncementCategoryFilter(value)}
+                          className={`rounded-full px-3 py-1 font-mono text-xs border transition-colors ${
+                            announcementCategoryFilter === value ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <Accordion type="multiple" className="w-full">
+                      {(() => {
+                        const filtered = announcementCategoryFilter ? filings.filter((f: any) => f.category === announcementCategoryFilter) : filings;
+                        if (filtered.length === 0 && announcementCategoryFilter) {
+                          return (
+                            <div className="py-8 text-center text-muted-foreground font-mono text-xs opacity-50">
+                              No {announcementCategoryFilter.replace(/_/g, " ")} files found for this ticker.
+                            </div>
+                          );
+                        }
+                        const byQuarter = filtered.reduce((acc: any, f: any) => {
+                          const q = f.quarter || "Unknown";
+                          if (!acc[q]) acc[q] = [];
+                          acc[q].push(f);
+                          return acc;
+                        }, {});
+                        return Object.entries(byQuarter).map(([q, qFiles]: [string, any]) => (
+                          <AccordionItem key={q} value={q}>
+                            <AccordionTrigger className="hover:no-underline py-2 px-1">
+                              <span className="font-mono text-xs font-bold">{q}</span>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                  <tbody>
+                                    {qFiles.map((f: any) => (
+                                      <tr key={f.filename} className="border-b border-border/50">
+                                        <td className="p-2 font-mono">
+                                          {f.filename}
+                                          {f.localMissing && (
+                                            <Badge variant="outline" className="ml-2 h-3 text-[8px] border-primary/30 text-primary uppercase">Drive Only</Badge>
                                           )}
-                                          {f.url && (f.drive_web_link || f.drive_file_id) && (
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              className="font-mono text-xs h-6 ml-1 text-muted-foreground"
-                                              onClick={() => localUrl && window.open(localUrl, "_blank", "noopener,noreferrer")}
-                                            >
-                                              Local
-                                            </Button>
-                                          )}
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="font-mono text-xs h-6 ml-1 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                            onClick={() => handleDeleteFiling(f.quarter ?? "", f.filename)}
-                                            disabled={deletingFileKey === `${f.quarter ?? ""}-${f.filename}`}
+                                        </td>
+                                        <td className="p-2 text-right">
+                                          <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            onClick={() => {
+                                              const targetUrl = f.url || f.drive_web_link;
+                                              if (targetUrl) window.open(targetUrl, "_blank");
+                                            }}
+                                            disabled={!f.url && !f.drive_web_link}
                                           >
-                                            {deletingFileKey === `${f.quarter ?? ""}-${f.filename}` ? (
-                                              <Loader2 className="h-3 w-3 animate-spin" />
-                                            ) : (
-                                              <><Trash2 className="h-3 w-3 mr-1" /> Delete</>
-                                            )}
+                                            View
                                           </Button>
                                         </td>
                                       </tr>
-                                    );
-                                    })}
+                                    ))}
                                   </tbody>
                                 </table>
-                                </div>
-                              </AccordionContent>
-                            </AccordionItem>
-                          );
-                        })}
-                      </Accordion>
-                    );
-                  })()}
-                </>
-              )}
-            </Card>
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        ));
+                      })()}
+                    </Accordion>
+                  </>
+                )}
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* ═══ QUARTERLY METRICS TAB ═══ */}
+          <TabsContent value="quarterly" className="space-y-4 mt-4">
+            <QuarterlyMetricsTab stockId={id!} />
           </TabsContent>
         </Tabs>
       </div>

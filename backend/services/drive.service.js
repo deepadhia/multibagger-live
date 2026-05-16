@@ -19,6 +19,9 @@ const OAUTH_CLIENT_PATH = process.env.GOOGLE_OAUTH_CLIENT_JSON_PATH
     : path.resolve(process.cwd(), process.env.GOOGLE_OAUTH_CLIENT_JSON_PATH)
   : "";
 const OAUTH_TOKENS_PATH = path.resolve(__dirname, "../secrets/drive-oauth-tokens.json");
+// Must match the redirect_uri used during the original OAuth consent screen
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
+const OAUTH_REDIRECT_URI = `${BACKEND_URL}/api/auth/drive/callback`;
 
 const DRIVE_UPLOAD_FOLDER_NAME = "Announcements";
 
@@ -44,20 +47,38 @@ function getServiceAccountCredentials() {
 }
 
 function getOAuthClientConfig() {
-  if (!OAUTH_CLIENT_PATH) { console.error("[Drive Debug] OAUTH_CLIENT_PATH is empty"); return null; }
-  if (!fs.existsSync(OAUTH_CLIENT_PATH)) { console.error("[Drive Debug] client secret file NOT FOUND at:", OAUTH_CLIENT_PATH); return null; }
-  try {
-    const raw = fs.readFileSync(OAUTH_CLIENT_PATH, "utf8");
-    const data = JSON.parse(raw);
-    const client = data.web || data.installed;
-    if (!client) { console.error("[Drive Debug] client_secret.json has no 'web' or 'installed' key. Top-level keys:", Object.keys(data).join(", ")); return null; }
-    if (!client.client_id) { console.error("[Drive Debug] client_secret.json missing client_id"); return null; }
-    if (!client.client_secret) { console.error("[Drive Debug] client_secret.json missing client_secret"); return null; }
-    return { clientId: client.client_id, clientSecret: client.client_secret };
-  } catch (e) {
-    console.error("[Drive Debug] Failed to parse client_secret.json:", e.message);
-    return null;
+  // 1) Try JSON file path (local dev)
+  if (OAUTH_CLIENT_PATH && fs.existsSync(OAUTH_CLIENT_PATH)) {
+    try {
+      const raw = fs.readFileSync(OAUTH_CLIENT_PATH, "utf8");
+      const data = JSON.parse(raw);
+      const client = data.web || data.installed;
+      if (client?.client_id && client?.client_secret) {
+        return { clientId: client.client_id, clientSecret: client.client_secret };
+      }
+    } catch (e) {
+      console.error("[Drive Debug] Failed to parse client_secret.json:", e.message);
+    }
   }
+
+  // 2) Fall back to env var (production/Render — set GOOGLE_OAUTH_CLIENT_JSON to the full JSON content)
+  const envJson = process.env.GOOGLE_OAUTH_CLIENT_JSON;
+  if (envJson) {
+    try {
+      const data = JSON.parse(envJson);
+      const client = data.web || data.installed;
+      if (client?.client_id && client?.client_secret) {
+        return { clientId: client.client_id, clientSecret: client.client_secret };
+      }
+      console.error("[Drive Debug] GOOGLE_OAUTH_CLIENT_JSON parsed but missing client_id/client_secret");
+    } catch (e) {
+      console.error("[Drive Debug] GOOGLE_OAUTH_CLIENT_JSON is not valid JSON:", e.message);
+    }
+  }
+
+  if (!OAUTH_CLIENT_PATH) console.error("[Drive Debug] OAUTH_CLIENT_PATH is empty and GOOGLE_OAUTH_CLIENT_JSON not set");
+  else if (!fs.existsSync(OAUTH_CLIENT_PATH)) console.error("[Drive Debug] client secret file NOT FOUND at:", OAUTH_CLIENT_PATH);
+  return null;
 }
 
 function getStoredOAuthTokens() {
@@ -109,10 +130,12 @@ async function getDriveClientFromOAuth() {
     throw new Error("Google Drive: GOOGLE_DRIVE_FOLDER_ID is not set (folder in your My Drive).");
   }
 
+  // IMPORTANT: redirect_uri must match the one used during the original OAuth consent flow.
+  // Using 'oob' here was causing invalid_grant on token refresh.
   const oauth2Client = new google.auth.OAuth2(
     config.clientId,
     config.clientSecret,
-    "urn:ietf:wg:oauth:2.0:oob"
+    OAUTH_REDIRECT_URI
   );
   oauth2Client.setCredentials({
     refresh_token: tokens.refresh_token,
@@ -120,28 +143,43 @@ async function getDriveClientFromOAuth() {
     expiry_date: tokens.expiry_date || undefined,
   });
 
-  const { credentials } = await oauth2Client.refreshAccessToken();
+  let credentials;
+  try {
+    ({ credentials } = await oauth2Client.refreshAccessToken());
+  } catch (err) {
+    const isRevoked =
+      err?.message?.includes("invalid_grant") ||
+      err?.response?.data?.error === "invalid_grant";
+    if (isRevoked) {
+      // Clear the stale token file so isDriveConfigured() returns false
+      try { fs.unlinkSync(OAUTH_TOKENS_PATH); } catch (_) {}
+      throw new Error(
+        "Google Drive token has expired or been revoked (invalid_grant). " +
+        "Please reconnect: click 'Connect Google Drive' in the app settings."
+      );
+    }
+    throw err;
+  }
+
   if (credentials.access_token) {
     oauth2Client.setCredentials(credentials);
-    if (credentials.refresh_token || tokens.refresh_token) {
-      try {
-        const dir = path.dirname(OAUTH_TOKENS_PATH);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(
-          OAUTH_TOKENS_PATH,
-          JSON.stringify(
-            {
-              refresh_token: credentials.refresh_token || tokens.refresh_token,
-              access_token: credentials.access_token,
-              expiry_date: credentials.expiry_date,
-            },
-            null,
-            2
-          ),
-          "utf8"
-        );
-      } catch (_) {}
-    }
+    try {
+      const dir = path.dirname(OAUTH_TOKENS_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        OAUTH_TOKENS_PATH,
+        JSON.stringify(
+          {
+            refresh_token: credentials.refresh_token || tokens.refresh_token,
+            access_token: credentials.access_token,
+            expiry_date: credentials.expiry_date,
+          },
+          null,
+          2
+        ),
+        "utf8"
+      );
+    } catch (_) {}
   }
 
   return google.drive({ version: "v3", auth: oauth2Client });
@@ -200,7 +238,10 @@ function collectPdfFiles(symbolFilter = null) {
       const quarterDir = path.join(symbolDir, quarter);
       if (!fs.statSync(quarterDir).isDirectory() || !quarter.startsWith("FY")) continue;
 
-      const files = fs.readdirSync(quarterDir).filter((f) => f.toLowerCase().endsWith(".pdf"));
+      const files = fs.readdirSync(quarterDir).filter((f) => {
+        const ext = f.toLowerCase();
+        return ext.endsWith(".pdf") || ext.endsWith(".xml");
+      });
       for (const filename of files) {
         list.push({
           symbol,
@@ -250,8 +291,9 @@ async function ensureFolder(drive, parentId, name) {
  */
 async function uploadFile(drive, parentId, localPath, filename) {
   const fileMetadata = { name: filename, parents: [parentId] };
+  const isXml = filename.toLowerCase().endsWith(".xml");
   const media = {
-    mimeType: "application/pdf",
+    mimeType: isXml ? "text/xml" : "application/pdf",
     body: fs.createReadStream(localPath),
   };
 
@@ -267,6 +309,21 @@ async function uploadFile(drive, parentId, localPath, filename) {
     webViewLink: file.data.webViewLink || null,
     name: file.data.name || filename,
   };
+}
+
+/**
+ * Targeted upload for a single filing.
+ */
+export async function uploadSingleFiling({ symbol, quarter, localPath, filename }) {
+  if (!isDriveConfigured()) return null;
+  const drive = await getDriveClient();
+  
+  const rootId = DRIVE_FOLDER_ID;
+  const announcementsFolderId = await ensureFolder(drive, rootId, DRIVE_UPLOAD_FOLDER_NAME);
+  const symbolFolderId = await ensureFolder(drive, announcementsFolderId, symbol);
+  const quarterFolderId = await ensureFolder(drive, symbolFolderId, quarter);
+
+  return await uploadFile(drive, quarterFolderId, localPath, filename);
 }
 
 /**

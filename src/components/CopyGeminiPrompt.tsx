@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { useManagementPromises, useQuarterlySnapshots, useStockTrackingProfile, useShareholding, useFinancialMetrics } from "@/hooks/useStocks";
+import { useManagementPromises, useQuarterlySnapshots, useStockTrackingProfile, useShareholding, useFinancialMetrics, useXbrlMetrics, useStockTranscripts } from "@/hooks/useStocks";
 import { decisionRulesFromProfile, getMetricKeysForPrompt } from "@/lib/trackingProfileConfig";
 import { useToast } from "@/hooks/use-toast";
 import { Copy, Check, Braces, History, Download, Settings2 } from "lucide-react";
@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "./ui/badge";
 
 interface Props {
   stock: {
@@ -32,6 +33,7 @@ function buildGeminiContext(
   limitToQuarter: string | null,
   shareholding: any[] | undefined,
   valuation: any | undefined,
+  xbrlMetrics: any[] | undefined,
   options: {
     includeTrend: boolean;
     includeOwnership: boolean;
@@ -42,6 +44,10 @@ function buildGeminiContext(
   }
 ) {
   const allSnapshots = (snapshots || []) as any[];
+  
+  const isSyncing = !valuation && (Date.now() - new Date(stock.created_at).getTime() < 5 * 60 * 1000);
+  const missingText = isSyncing ? "FINANCIAL DATA SYNCING" : "NOT DISCLOSED";
+
   
   // If a limit is specified, exclude that quarter and any newer ones
   const filteredSnapshots = limitToQuarter 
@@ -98,28 +104,101 @@ function buildGeminiContext(
   const rollingSnapshots = JSON.stringify(rollingSnapshotsArray, null, 2);
 
   
+  // --- PREPARE XBRL DATA ---
+  let xbrlRows = (xbrlMetrics || []) as any[];
+  if (limitToQuarter && xbrlRows.length > 0) {
+    const targetIdx = xbrlRows.findIndex((r: any) => r.quarter === limitToQuarter);
+    xbrlRows = targetIdx >= 0 ? xbrlRows.slice(targetIdx) : xbrlRows;
+  }
+
+  // --- UNIFIED FORMATTERS ---
+  const toCrValue = (val: string | number | null | undefined) => {
+    if (val == null) return null;
+    return Math.round((parseFloat(val as string) / 10000000) * 100) / 100;
+  };
+  const toDisplayCrores = (val: string | number | null | undefined) => {
+    const cr = toCrValue(val);
+    return cr != null ? `₹${cr} Cr` : "N/A";
+  };
+  const toDisplayPercent = (val: string | number | null | undefined) => {
+    if (val == null) return "N/A";
+    const num = typeof val === 'string' ? parseFloat(val) : val;
+    return `${num}%`;
+  };
+
   // --- DECISION ENGINE TREND CALCS ---
   const revValues: (number | null)[] = [];
   const patValues: (number | null)[] = [];
   const marginValues: (number | null)[] = [];
+  const finCostValues: (number | null)[] = [];
+  let trendSource = "N/A";
+  let momentumDirection = "Neutral";
   
-  const past3 = filteredSnapshots.slice(0, 3).reverse();
-  for (const s of past3) {
-    const metrics = s.metrics || {};
-    revValues.push(parseFloat(metrics.revenue_growth?.value) || null);
-    patValues.push(parseFloat(metrics.pat_growth?.value) || null);
-    marginValues.push(parseFloat(metrics.opm?.value || metrics.ebitda_margin?.value) || null);
+  if (xbrlRows.length >= 2) {
+    trendSource = "xbrl_metrics_quarterly";
+    const pastN = xbrlRows.slice(0, Math.min(4, xbrlRows.length)).reverse();
+
+    for (const r of pastN) {
+      revValues.push(toCrValue(r.revenue_from_ops));
+      patValues.push(toCrValue(r.pat));
+      finCostValues.push(toCrValue(r.finance_cost));
+      
+      let margin = null;
+      if (r.ebitda_margin_pct != null) margin = parseFloat(r.ebitda_margin_pct);
+      else if (r.ebitda != null && r.revenue_from_ops != null && parseFloat(r.revenue_from_ops) > 0) {
+        margin = Math.round((parseFloat(r.ebitda) / parseFloat(r.revenue_from_ops)) * 1000) / 10;
+      }
+      marginValues.push(margin);
+    }
+  } else {
+    trendSource = "quarterly_snapshots (fallback)";
+    const past3 = filteredSnapshots.slice(0, 3).reverse();
+    for (const s of past3) {
+      const metrics = s.metrics || {};
+      revValues.push(parseFloat(metrics.revenue_growth?.value || metrics.revenue?.value) || null);
+      patValues.push(parseFloat(metrics.pat_growth?.value || metrics.pat?.value) || null);
+      marginValues.push(parseFloat(metrics.opm?.value || metrics.ebitda_margin?.value) || null);
+      finCostValues.push(null); // Not reliably tracked in old snapshots
+    }
   }
 
   const revTrend = computeTrendDirection(revValues, 5);
   const patTrend = computeTrendDirection(patValues, 5);
+  const finCostTrend = computeTrendDirection(finCostValues, 5);
   const marginTrend = computeMarginTrend(marginValues, 0.5);
+
+  if (revTrend.includes("Improving") && patTrend.includes("Improving")) {
+    momentumDirection = "Positive";
+  } else if (revTrend.includes("Deteriorating") || patTrend.includes("Deteriorating")) {
+    momentumDirection = "Negative";
+  } else {
+    momentumDirection = "Mixed";
+  }
+
+  const cutoffDate = filteredSnapshots.length > 0 && filteredSnapshots[0].created_at 
+    ? new Date(filteredSnapshots[0].created_at).getTime() 
+    : Date.now();
+
+  let filteredShareholding = shareholding || [];
+  if (limitToQuarter && filteredSnapshots.length > 0) {
+    filteredShareholding = (shareholding || []).filter((s: any) => s.created_at && new Date(s.created_at).getTime() <= cutoffDate);
+  }
+
+  let filteredValuation = null;
+  if (Array.isArray(valuation) && valuation.length > 0) {
+    const validMetrics = limitToQuarter && filteredSnapshots.length > 0
+      ? valuation.filter((v: any) => v.created_at && new Date(v.created_at).getTime() <= cutoffDate)
+      : valuation;
+    if (validMetrics.length > 0) {
+      filteredValuation = validMetrics[validMetrics.length - 1]; 
+    }
+  }
 
   let promoterValues: (number | null)[] = [];
   let fiiValues: (number | null)[] = [];
   let diiValues: (number | null)[] = [];
-  if (shareholding && shareholding.length > 0) {
-    const shPast3 = shareholding.slice(0, 3).reverse();
+  if (filteredShareholding && filteredShareholding.length > 0) {
+    const shPast3 = filteredShareholding.slice(0, 3).reverse();
     promoterValues = shPast3.map((s: any) => parseFloat(s.promoters) || null);
     fiiValues = shPast3.map((s: any) => parseFloat(s.fiis) || null);
     diiValues = shPast3.map((s: any) => parseFloat(s.diis) || null);
@@ -138,40 +217,59 @@ function buildGeminiContext(
   
   decisionEngineContext += `SECTION A: Current Quarter Snapshot\n`;
   if (filteredSnapshots.length > 0) {
-    decisionEngineContext += (filteredSnapshots[0].summary || "NOT DISCLOSED") + "\n\n";
+    decisionEngineContext += (filteredSnapshots[0].summary || missingText) + "\n\n";
   } else {
-    decisionEngineContext += "NOT DISCLOSED\n\n";
+    decisionEngineContext += missingText + "\n\n";
   }
 
   if (options.includeTrend) {
-    decisionEngineContext += `SECTION B: Last 3 Quarter Trend (Source: quarterly_snapshots)\n`;
-    decisionEngineContext += `Revenue Growth: ${formatTrendSeries(revValues)} (${revTrend})\n`;
-    decisionEngineContext += `PAT Growth: ${formatTrendSeries(patValues)} (${patTrend})\n`;
-    decisionEngineContext += `Margin: ${formatTrendSeries(marginValues)} (${marginTrend})\n\n`;
+    let trendQ = xbrlRows.length >= 2 ? Math.min(4, xbrlRows.length) : Math.min(3, filteredSnapshots.length);
+    let trendQText = trendQ >= 2 ? `${trendQ}Q Trend` : "Insufficient Data";
+    
+    decisionEngineContext += `SECTION B: Last ${trendQText}\n`;
+    if (trendQ >= 2) {
+      decisionEngineContext += `Revenue Trend (₹ Cr): ${formatTrendSeries(revValues)} (${revTrend})\n`;
+      decisionEngineContext += `PAT Trend (₹ Cr): ${formatTrendSeries(patValues)} (${patTrend})\n`;
+      decisionEngineContext += `Margin Trend: ${formatTrendSeries(marginValues, "%")} (${marginTrend})\n`;
+      
+      if (finCostValues.some(v => v != null)) {
+        decisionEngineContext += `Finance Cost Trend (₹ Cr): ${formatTrendSeries(finCostValues)} (${finCostTrend})\n`;
+      }
+      
+      decisionEngineContext += `Momentum Direction: ${momentumDirection}\n`;
+      decisionEngineContext += `Data Engine: Absolute INR → Converted to Crores\n`;
+      decisionEngineContext += `Source: ${trendSource}\n`;
+      decisionEngineContext += `⚠️ STRICT RULE FOR ANALYSIS:\n`;
+      decisionEngineContext += `- IF a metric is marked [FALLBACK] and age > 1Q, treat as low reliability.\n`;
+      decisionEngineContext += `- IF a metric is marked [INVALID] or has confidence 0, IGNORE it completely for trend/scoring.\n`;
+      decisionEngineContext += `- IF age > 2Q, DO NOT USE for trend analysis as it creates fake signals.\n\n`;
+    } else {
+      decisionEngineContext += `${trendQText}\n\n`;
+    }
   }
 
   if (options.includeOwnership) {
     decisionEngineContext += `SECTION C: Ownership Trend (Source: shareholding)\n`;
-    if (shareholding && shareholding.length > 0) {
-      decisionEngineContext += `Promoter: ${formatTrendSeries(promoterValues)}\n`;
-      decisionEngineContext += `FII: ${formatTrendSeries(fiiValues)}\n`;
-      decisionEngineContext += `DII: ${formatTrendSeries(diiValues)}\n`;
+    if (filteredShareholding && filteredShareholding.length > 0) {
+      decisionEngineContext += `Promoter: ${formatTrendSeries(promoterValues, "%")}\n`;
+      decisionEngineContext += `FII: ${formatTrendSeries(fiiValues, "%")}\n`;
+      decisionEngineContext += `DII: ${formatTrendSeries(diiValues, "%")}\n`;
       decisionEngineContext += `Status: ${ownershipAnalysis.label} ${ownershipAnalysis.details ? `- ${ownershipAnalysis.details}` : ""}\n\n`;
     } else {
-      decisionEngineContext += "NOT DISCLOSED\n\n";
+      decisionEngineContext += missingText + "\n\n";
     }
   }
 
   if (options.includeValuation) {
-    const asOf = valuation && valuation.created_at ? new Date(valuation.created_at).toISOString().split('T')[0] : 'Current';
+    const asOf = filteredValuation && filteredValuation.created_at ? new Date(filteredValuation.created_at).toISOString().split('T')[0] : (limitToQuarter ? 'Historical valuation unavailable' : 'Current');
     decisionEngineContext += `SECTION D: Valuation Snapshot (Source: financial_metrics, As of: ${asOf})\n`;
-    if (valuation) {
-      decisionEngineContext += `Current P/E: ${valuation.pe_ratio || 'NOT DISCLOSED'}\n`;
-      decisionEngineContext += `Industry P/E: ${valuation.industry_pe || 'NOT DISCLOSED'}\n`;
-      decisionEngineContext += `EV/EBITDA: ${valuation.ev_to_ebitda || 'NOT DISCLOSED'}\n`;
-      decisionEngineContext += `Market Cap: ${valuation.market_cap ? valuation.market_cap + ' Cr' : 'NOT DISCLOSED'}\n\n`;
+    if (filteredValuation) {
+      decisionEngineContext += `Relevant P/E: ${filteredValuation.pe_ratio || missingText}\n`;
+      decisionEngineContext += `Industry P/E: ${filteredValuation.industry_pe || missingText}\n`;
+      decisionEngineContext += `EV/EBITDA: ${filteredValuation.ev_to_ebitda || missingText}\n`;
+      decisionEngineContext += `Market Cap: ${filteredValuation.market_cap ? filteredValuation.market_cap + ' Cr' : missingText}\n\n`;
     } else {
-      decisionEngineContext += "NOT DISCLOSED\n\n";
+      decisionEngineContext += missingText + "\n\n";
     }
   }
 
@@ -183,9 +281,99 @@ function buildGeminiContext(
       decisionEngineContext += "None detected.\n\n";
     }
   }
-  
-  decisionEngineContext += `SECTION F: AI Instructions\n`;
-  // --- END DECISION ENGINE ---
+
+  // SECTION F: Screener / Fundamental Data (from financial_metrics — annual)
+  // Always injected when valuation toggle is on; time-filter note added for historical queries.
+  if (options.includeValuation) {
+    const fm = valuation && typeof valuation === "object" && !Array.isArray(valuation) ? valuation as any : null;
+    const fmYear = fm?.year ? `FY${String(fm.year).slice(-2)}` : "Latest Available";
+    decisionEngineContext += `SECTION F: Screener / Fundamental Data (Source: financial_metrics — Annual, ${fmYear})\n`;
+    if (fm) {
+      decisionEngineContext += `ROCE: ${fm.roce != null ? fm.roce + "%" : missingText}\n`;
+      decisionEngineContext += `ROE: ${fm.roe != null ? fm.roe + "%" : missingText}\n`;
+      decisionEngineContext += `Debt/Equity: ${fm.debt_equity != null ? fm.debt_equity : missingText}\n`;
+      decisionEngineContext += `Operating Margin (OPM): ${fm.opm != null ? fm.opm + "%" : missingText}\n`;
+      decisionEngineContext += `Revenue (Cr): ${fm.revenue != null ? fm.revenue : missingText}\n`;
+      decisionEngineContext += `Revenue Growth (YoY): ${fm.revenue_growth != null ? fm.revenue_growth + "%" : missingText}\n`;
+      decisionEngineContext += `Net Profit (Cr): ${fm.net_profit != null ? fm.net_profit : missingText}\n`;
+      decisionEngineContext += `Profit Growth (YoY): ${fm.profit_growth != null ? fm.profit_growth + "%" : missingText}\n`;
+      decisionEngineContext += `Free Cash Flow (Cr): ${fm.free_cash_flow != null ? fm.free_cash_flow : missingText}\n`;
+      decisionEngineContext += `EPS: ${fm.eps != null ? fm.eps : missingText}\n`;
+      decisionEngineContext += `Promoter Holding (Annual): ${fm.promoter_holding != null ? fm.promoter_holding + "%" : missingText}\n`;
+      if (limitToQuarter) {
+        decisionEngineContext += `⚠️ Note: financial_metrics is annual data and may not precisely reflect the selected historical quarter.\n`;
+      }
+    } else {
+      decisionEngineContext += missingText + "\n";
+    }
+    decisionEngineContext += "\n";
+  }
+  // --- END DECISION ENGINE CONTEXT ---
+
+  // SECTION G: Official Quarterly Financials (from xbrl_metrics_quarterly — NSE API)
+  // Highest-priority source. Time-travel: only show quarters at or before limitToQuarter.
+  {
+    const sectionGxbrl = xbrlRows.slice(0, 4); 
+    decisionEngineContext += `SECTION G: Official Quarterly Financials (Source: NSE/XBRL Hybrid)\n`;
+    if (sectionGxbrl.length > 0) {
+      const yoy = (v: number | null) => v != null ? ` (YoY: ${v > 0 ? "+" : ""}${v}%)` : "";
+      const src = (field: string, r: any) => {
+        const meta = r.metric_metadata?.[field] || {};
+        const s = meta.source || r.metric_sources?.[field];
+        const age = meta.age_quarters || 0;
+        const valid = meta.derived_valid !== false;
+        
+        if (!valid) return ` [INVALID: ${meta.invalid_reason || 'STALE'}]`;
+        if (s === 'xbrl') return "";
+        if (s === 'fallback') return ` [FALLBACK: ${age}Q OLD]`;
+        if (s === 'derived') return " [DERIVED]";
+        if (s === 'api') return " [API SUMMARY]";
+        return s ? ` [${String(s).toUpperCase()}]` : "";
+      };
+
+      for (const row of sectionGxbrl) {
+        decisionEngineContext += `\n[${row.quarter} | Reliability: ${row.reliability_score || 0}%]\n`;
+        decisionEngineContext += `  P&L: Rev: ${toDisplayCrores(row.revenue_from_ops)}${yoy(row.revenue_growth_yoy)}${src('revenue_from_ops', row)} | PAT: ${toDisplayCrores(row.pat)}${yoy(row.pat_growth_yoy)}${src('pat', row)}\n`;
+        
+        // DISTILLED SIGNALS (High ROI)
+        const signals: string[] = [];
+        
+        // 1. Working Capital Stress (Receivable Days & WC Cycle)
+        if (row.receivables != null && row.revenue_from_ops != null && row.revenue_from_ops > 0) {
+          const recDays = Math.round((parseFloat(row.receivables) / parseFloat(row.revenue_from_ops)) * 90);
+          signals.push(`Receivable Days: ${recDays}d${src('receivable_days', row)}`);
+        }
+        
+        if (row.trade_payables != null) {
+          signals.push(`Payables: ${toDisplayCrores(row.trade_payables)}${src('trade_payables', row)}`);
+        }
+        
+        if (row.working_capital_days != null) {
+          signals.push(`WC Cycle: ${Math.round(parseFloat(row.working_capital_days))}d${src('working_capital_days', row)}`);
+        }
+        
+        // 2. Cash Flow Quality (CFO / PAT)
+        if (row.cfo != null && row.pat != null && row.pat > 0) {
+          const cfoRatio = (parseFloat(row.cfo) / parseFloat(row.pat)).toFixed(2);
+          signals.push(`CFO/PAT Ratio: ${cfoRatio}${src('cfo_pat_ratio', row)} (${row.cfo_period_type || 'Q'})`);
+        }
+        
+        // 3. Leverage
+        if (row.borrowings != null) {
+          signals.push(`Borrowings: ${toDisplayCrores(row.borrowings)}${src('borrowings', row)}`);
+        }
+
+        if (signals.length > 0) {
+          decisionEngineContext += `  Enrichment: ${signals.join(" | ")}\n`;
+        }
+
+        if (row.exceptional_items != null && row.exceptional_items !== 0) decisionEngineContext += `  ⚠️ Exceptional: ${toDisplayCrores(row.exceptional_items)}\n`;
+      }
+      decisionEngineContext += `\n`;
+    } else {
+      decisionEngineContext += `NOT FETCHED — run POST /api/xbrl/fetch for ${stock.ticker}.\n\n`;
+    }
+  }
 
   const profile = trackingConfig;
 
@@ -326,7 +514,7 @@ function buildGeminiContext(
       add_conditions: decisionRules.add_conditions,
     },
     stock_tracking_profile_config: profile ?? null,
-    system_version: "v11",
+    system_version: "v12",
     previous_decision: (rollingSnapshotsArray[0] as any)?.actionable_verdict?.decision || "INITIAL_EVALUATION",
   };
 
@@ -388,7 +576,13 @@ ${JSON.stringify(pendingLedger, null, 2)}
 Credibility Score (kept vs broken promises so far): ${credibility}
 
 ═══════════════════════════════════════
-⚠️ NON-NEGOTIABLE RULES (HARD LOGIC) — V10
+📊 DECISION ENGINE SIGNALS (PRE-COMPUTED)
+═══════════════════════════════════════
+Use these computed signals to anchor your scoring. They are derived from DB-stored data and are source-labeled.
+
+${decisionEngineContext}
+═══════════════════════════════════════
+⚠️ NON-NEGOTIABLE RULES (HARD LOGIC) — V12
 ═══════════════════════════════════════
 
 1. **THESIS DOMINANCE RULE (HARD GATE)**
@@ -507,7 +701,7 @@ Credibility Score (kept vs broken promises so far): ${credibility}
     ⚠️ Sector concentration is a portfolio-level failure mode, not a stock-level one. Never allow 3+ FULL positions in the same macro theme.
 
 ═══════════════════════════════════════
-🌐 SOURCE-AWARE HYBRID INTELLIGENCE (V11)
+🌐 SOURCE-AWARE HYBRID INTELLIGENCE (V12)
 ═══════════════════════════════════════
 
 17. **SOURCE PRIORITY (TRUTH LAYER)**
@@ -625,7 +819,7 @@ STEP 9c: Apply Data Alignment Boost (Rule 21) — add +5 conviction if sources a
 STEP 9d: Apply Penalty Normalization (Rule 15) — consolidate overlapping penalties before emitting final scores
 
 ═══════════════════════════════════════
-OUTPUT FORMAT (STRICT JSON — V10)
+OUTPUT FORMAT (STRICT JSON — V12)
 ═══════════════════════════════════════
 Return a SINGLE JSON object exactly matching this schema. No prose. No markdown backticks.
 
@@ -697,7 +891,7 @@ ${strictRuleCheckSchema}
     "position_size": "starter | half | full | none",
     "portfolio_weight_pct": 0,
     "decision_confidence": "HIGH | MEDIUM | LOW",
-    "version": "v11",
+    "version": "v12",
     "previous_decision": "${rollingSnapshotsArray[0]?.actionable_verdict?.decision || "INITIAL_EVALUATION"}",
     "decision_change": "e.g. WAIT → CUT | STABLE | NEW_POSITION",
     "decision_blockers": ["Use ONLY from: earnings_quality_risk | cycle_peak_risk | low_disclosure_risk | working_capital_risk | customer_concentration_risk | theme_concentration_risk | data_mismatch_risk | ownership_structure_risk | promoter_selling_signal | valuation_stretched | kill_switch_triggered | thesis_drift_negative | momentum_decelerating"]
@@ -759,7 +953,7 @@ ANTI-BIAS & ANTI-HALLUCINATION PROTOCOLS
 ═══════════════════════════════════════
 1. NEVER hallucinate numbers. If not explicitly in the transcript, set value = "NOT DISCLOSED" and log in dodged_questions_or_omissions.
 2. STRICT PROMISE IDs: Only use IDs from the PENDING PROMISE LEDGER. Zero invented UUIDs.
-3. SIGNAL INTELLIGENCE V11+: primary_metric_momentum (with qoq_values + consecutive_deceleration_quarters), thesis_dependency, execution_quality, earnings_quality, source_intelligence, and thesis_monitoring are ALL REQUIRED.
+3. SIGNAL INTELLIGENCE V12+: primary_metric_momentum (with qoq_values + consecutive_deceleration_quarters), thesis_dependency, execution_quality, earnings_quality, source_intelligence, and thesis_monitoring are ALL REQUIRED.
 4. BE RUTHLESS: Strong execution → reward. Broken margins → punish. Missing data → reduce conviction, not reality.
 5. DO NOT reward absolute performance while ignoring direction. Falling growth rate = deteriorating, regardless of absolute level.
 6. Cash is reality. Accounting profit is opinion. Weak OCF must be stated explicitly in decision_blockers.
@@ -768,7 +962,7 @@ ANTI-BIAS & ANTI-HALLUCINATION PROTOCOLS
 9. Multibagger mode (Rule 11) is NOT a "stay bullish" escape. It only prevents a single-quarter panic cut. Two consecutive quarters of deterioration (three for lumpy businesses) overrides it.
 10. PENALTY NORMALIZATION (Rule 15) is mandatory. Before outputting scores, audit your penalties: did the same root cause generate multiple deductions? Consolidate — take the harshest single penalty, not the sum.
 11. PORTFOLIO AWARENESS (Rule 16): always flag theme_concentration_risk if the stock shares a macro theme with other known holdings. Default to rationale note if unknown.
-12. V11 HYBRID INTELLIGENCE: Rule 17-22 are non-negotiable. Mismatch = Penalty. Alignment = Boost. Ownership = Context-aware. Ensure dual-tier metrics schema is strictly followed.`;
+12. V12 HYBRID INTELLIGENCE: Rule 17-22 are non-negotiable. Mismatch = Penalty. Alignment = Boost. Ownership = Context-aware. Ensure dual-tier metrics schema is strictly followed.`;
 
   
   // Prevent prompt bloat
@@ -786,8 +980,14 @@ export function CopyGeminiPrompt({ stock }: Props) {
   const { data: snapshots } = useQuarterlySnapshots(stock.id);
   const { data: trackingConfig } = useStockTrackingProfile(stock.id);
   const { data: shareholding } = useShareholding(stock.id);
-  const { data: valuation } = useFinancialMetrics(stock.id);
+  const { data: valuation, isLoading: isLoadingValuation } = useFinancialMetrics(stock.id);
+  const { data: xbrlMetrics } = useXbrlMetrics(stock.id);
+  const { data: transcripts } = useStockTranscripts(stock.id);
   const { toast } = useToast();
+  
+  const isSyncing = isLoadingValuation;
+  const missingText = isSyncing ? "FINANCIAL DATA SYNCING" : "NOT DISCLOSED";
+
   const [copiedKind, setCopiedKind] = useState<CopyKind>(null);
   const [historyLimitQuarter, setHistoryLimitQuarter] = useState<string>("all");
   
@@ -801,9 +1001,76 @@ export function CopyGeminiPrompt({ stock }: Props) {
   });
 
   const quarterOptions = useMemo(() => {
-    if (!snapshots || snapshots.length === 0) return [];
-    return snapshots.map((s: any) => s.quarter);
-  }, [snapshots]);
+    const qSet = new Set<string>();
+    if (snapshots) snapshots.forEach((s: any) => qSet.add(s.quarter));
+    if (xbrlMetrics) xbrlMetrics.forEach((x: any) => qSet.add(x.quarter));
+    if (transcripts) transcripts.forEach((t: any) => qSet.add(t.quarter));
+
+    // Predict future quarters up to current date (India FY: Q1=Jun, Q2=Sep, Q3=Dec, Q4=Mar)
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth(); // 0-indexed
+    
+    let latestFY = currentYear;
+    let latestQ = 1;
+    
+    // Apr-Jun -> Q1
+    // Jul-Sep -> Q2
+    // Oct-Dec -> Q3
+    // Jan-Mar -> Q4 (of previous year's FY naming)
+    if (currentMonth >= 3 && currentMonth <= 5) { latestQ = 1; latestFY = currentYear + 1; }
+    else if (currentMonth >= 6 && currentMonth <= 8) { latestQ = 2; latestFY = currentYear + 1; }
+    else if (currentMonth >= 9 && currentMonth <= 11) { latestQ = 3; latestFY = currentYear + 1; }
+    else { latestQ = 4; latestFY = currentYear; }
+
+    // Start from the latest possible quarter and go back 12 steps
+    let tempFY = latestFY;
+    let tempQ = latestQ;
+    
+    for (let i = 0; i < 12; i++) {
+      qSet.add(`FY${String(tempFY).slice(-2)}-Q${tempQ}`);
+      tempQ--;
+      if (tempQ === 0) {
+        tempQ = 4;
+        tempFY--;
+      }
+    }
+
+    return Array.from(qSet).sort((a, b) => {
+      // Sort FYXX-QX descending
+      const [ay, aq] = a.replace("FY", "").split("-Q").map(Number);
+      const [by, bq] = b.replace("FY", "").split("-Q").map(Number);
+      if (ay !== by) return by - ay;
+      return bq - aq;
+    });
+  }, [snapshots, xbrlMetrics, transcripts]);
+
+  const targetQuarter = historyLimitQuarter === "all" ? quarterOptions[0] : historyLimitQuarter;
+
+  const dataCompleteness = useMemo(() => {
+    if (!targetQuarter) return null;
+    const hasXbrl = xbrlMetrics?.some((x: any) => x.quarter === targetQuarter);
+    const hasScreener = !!valuation;
+    const hasShareholding = shareholding?.some((s: any) => s.quarter === targetQuarter || (s.created_at && new Date(s.created_at).getTime() < Date.now()));
+    const hasSnapshot = snapshots?.some((s: any) => s.quarter === targetQuarter);
+    const hasTranscript = transcripts?.some((t: any) => t.quarter === targetQuarter);
+    return { hasXbrl, hasScreener, hasShareholding, hasSnapshot, hasTranscript };
+  }, [targetQuarter, xbrlMetrics, valuation, shareholding, snapshots, transcripts]);
+
+  const getQuarterLabel = (q: string) => {
+    const hasSnapshot = snapshots?.some((s: any) => s.quarter === q);
+    const hasXbrl = xbrlMetrics?.some((x: any) => x.quarter === q);
+    const hasTranscript = transcripts?.some((t: any) => t.quarter === q);
+    
+    let status = "";
+    if (hasSnapshot) status = "";
+    else if (hasXbrl && hasTranscript) status = " (XBRL + Transcript ready)";
+    else if (hasXbrl) status = " (XBRL ready)";
+    else if (hasTranscript) status = " (Transcript ready)";
+    else status = " (No Data)";
+
+    return `${q}${status}${!hasSnapshot && status !== " (No Data)" ? " / No AI snapshot" : ""}`;
+  };
 
   const validateAndCopy = async (text: string, kind: CopyKind, successMsg: string) => {
     if (!text || text.includes("undefined")) {
@@ -826,7 +1093,7 @@ export function CopyGeminiPrompt({ stock }: Props) {
     const { prompt } = buildGeminiContext(
       stock, promises, snapshots, (trackingConfig as Record<string, unknown> | null) ?? null, 
       historyLimitQuarter === "all" ? null : historyLimitQuarter,
-      shareholding, valuation, options
+      shareholding, valuation, xbrlMetrics, options
     );
     await validateAndCopy(prompt, "prompt", `${stock.ticker} — Decision Engine prompt ready.`);
   };
@@ -835,7 +1102,7 @@ export function CopyGeminiPrompt({ stock }: Props) {
     const { verificationPayload } = buildGeminiContext(
       stock, promises, snapshots, (trackingConfig as Record<string, unknown> | null) ?? null, 
       historyLimitQuarter === "all" ? null : historyLimitQuarter,
-      shareholding, valuation, options
+      shareholding, valuation, xbrlMetrics, options
     );
     await validateAndCopy(JSON.stringify(verificationPayload, null, 2), "json", "Structured context copied.");
   };
@@ -856,22 +1123,33 @@ export function CopyGeminiPrompt({ stock }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-3">
       {quarterOptions.length > 0 && (
-        <div className="flex items-center gap-2 border border-border/50 rounded-md px-2 py-1 bg-muted/30">
-          <History className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">History up to:</span>
-          <Select value={historyLimitQuarter} onValueChange={setHistoryLimitQuarter}>
-            <SelectTrigger className="w-[110px] h-7 font-mono text-[10px] border-none bg-transparent focus:ring-0">
-              <SelectValue placeholder="All Quarters" />
-            </SelectTrigger>
-            <SelectContent className="bg-card border-border">
-              <SelectItem value="all" className="font-mono text-xs">All Quarters</SelectItem>
-              {quarterOptions.map(q => (
-                <SelectItem key={q} value={q} className="font-mono text-xs">{q}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex flex-col gap-2 border border-border/50 rounded-md p-2 bg-muted/10">
+          <div className="flex items-center gap-2 bg-muted/30 px-2 py-1 rounded">
+            <History className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">History up to:</span>
+            <Select value={historyLimitQuarter} onValueChange={setHistoryLimitQuarter}>
+              <SelectTrigger className="w-auto h-7 font-mono text-[10px] border-none bg-transparent focus:ring-0">
+                <SelectValue placeholder="All Quarters" />
+              </SelectTrigger>
+              <SelectContent className="bg-card border-border">
+                <SelectItem value="all" className="font-mono text-xs">All Quarters</SelectItem>
+                {quarterOptions.map(q => (
+                  <SelectItem key={q} value={q} className="font-mono text-xs">{getQuarterLabel(q)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {dataCompleteness && (
+            <div className="flex gap-2 px-1">
+              <Badge variant={dataCompleteness.hasXbrl ? "default" : "destructive"} className="text-[9px] px-1 py-0 h-4">XBRL: {dataCompleteness.hasXbrl ? "Yes" : "Missing"}</Badge>
+              <Badge variant={dataCompleteness.hasTranscript ? "default" : "destructive"} className="text-[9px] px-1 py-0 h-4">Transcript: {dataCompleteness.hasTranscript ? "Yes" : "Missing"}</Badge>
+              <Badge variant={dataCompleteness.hasScreener ? "default" : "destructive"} className="text-[9px] px-1 py-0 h-4">Screener: {dataCompleteness.hasScreener ? "Yes" : "Missing"}</Badge>
+              <Badge variant={dataCompleteness.hasShareholding ? "default" : "outline"} className="text-[9px] px-1 py-0 h-4">SHP: {dataCompleteness.hasShareholding ? "Yes" : "?"}</Badge>
+            </div>
+          )}
         </div>
       )}
+
       
       <Popover>
         <PopoverTrigger asChild>
@@ -899,6 +1177,11 @@ export function CopyGeminiPrompt({ stock }: Props) {
       </Popover>
 
       <div className="flex items-center gap-2">
+        {isSyncing && (
+          <Badge variant="outline" className="animate-pulse bg-terminal-amber/10 text-terminal-amber border-terminal-amber/30 font-mono text-[10px]">
+            Syncing Data...
+          </Badge>
+        )}
         <Button variant="outline" size="sm" onClick={copyPrompt} className="font-mono text-xs">
           {copiedKind === "prompt" ? <Check className="h-3 w-3 text-terminal-green" /> : <Copy className="h-3 w-3" />}
           <span className="ml-1">{copiedKind === "prompt" ? "Copied!" : "Copy prompt"}</span>
@@ -914,4 +1197,4 @@ export function CopyGeminiPrompt({ stock }: Props) {
     </div>
   );
 }
-
+

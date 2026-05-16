@@ -37,16 +37,44 @@ const MEDIUM_KEYWORDS = [
 ];
 
 /**
+ * Normalizes an announcement title by removing routine prefixes and extra whitespace.
+ * Helps in deduplicating news that is slightly differently worded on NSE vs BSE.
+ */
+export function normalizeTitle(title) {
+  if (!title) return "";
+  let t = title.toLowerCase();
+  
+  // Remove common noisy phrases and prefixes
+  const noise = [
+    "intimation of ", "updates on ", "copy of ", "general updates - ", 
+    "outcome of ", "disclosure under ", "corporate announcement - ",
+    "regulation 30 - ", "press release - ", "announcement regarding ",
+    "intimation under regulation 30", "outcome of board meeting",
+    "submission of ", "regarding ", "intimation for ", "information regarding "
+  ];
+  
+  for (const n of noise) {
+    if (t.includes(n)) t = t.replace(n, "");
+  }
+
+  // Remove common exchange suffixes
+  t = t.replace(/ - (nse|bse)$/, "");
+  t = t.replace(/\((nse|bse)\)$/, "");
+
+  // Remove excessive whitespace
+  t = t.replace(/\s+/g, " ").trim();
+  
+  return t;
+}
+
+/**
  * First-pass keyword filter to ignore routine filings.
  */
 export function shouldProcessAnnouncement(title) {
   const t = String(title || "").toLowerCase();
 
-  if (LOW_KEYWORDS.some(k => t.includes(k))) return false;
-  if (HIGH_KEYWORDS.some(k => t.includes(k))) return true;
-  if (MEDIUM_KEYWORDS.some(k => t.includes(k))) return true; // Process for silent logging
-
-  return false; 
+  // We process everything for the live feed, but we can use keywords to set defaults
+  return true; 
 }
 
 /**
@@ -127,8 +155,10 @@ async function getNseCookies() {
 
 /**
  * Fetches recent announcements from NSE API for a specific symbol.
+ * @param {string} symbol 
+ * @param {number} lookbackDaysNum Number of days to look back (default 30)
  */
-export async function fetchNseAnnouncements(symbol) {
+export async function fetchNseAnnouncements(symbol, lookbackDaysNum = 30) {
   if (!symbol) return [];
   const cookies = await getNseCookies();
   
@@ -153,21 +183,23 @@ export async function fetchNseAnnouncements(symbol) {
   }
 
   const data = await response.json();
-  const lookbackDays = new Date();
-  lookbackDays.setDate(lookbackDays.getDate() - 30);
+  const lookbackDate = new Date();
+  lookbackDate.setDate(lookbackDate.getDate() - lookbackDaysNum);
 
   // NSE returns an array directly. Filter for last 30 days to avoid history bloat.
   return (data || [])
     .filter(ann => {
       const annDate = new Date(ann.sort_date || ann.an_dt || ann.dt);
-      return annDate >= lookbackDays;
+      return annDate >= lookbackDate;
     })
     .map(ann => ({
       NEWS_ID: ann.seq_id || ann.desc, 
       NEWSSUB: ann.desc,
       DT_TM: ann.sort_date || ann.an_dt,
       SOURCE: "NSE",
-      attachment: ann.attchmntFile,
+      attachment: ann.attchmntFile 
+        ? (ann.attchmntFile.startsWith("http") ? ann.attchmntFile : `https://nsearchives.nseindia.com/corporate/${ann.attchmntFile}`)
+        : null,
       attachment_text: ann.attchmntText
     }));
 }
@@ -177,7 +209,10 @@ export async function fetchNseAnnouncements(symbol) {
  * when source_id (NEWS_ID) is missing or unreliable.
  */
 export function generateAnnouncementHash(ticker, title, timestamp) {
-  const data = `${ticker}:${title}:${timestamp}`;
+  // Use normalized title and DATE ONLY for the hash to handle small time drifts between exchanges
+  const norm = normalizeTitle(title);
+  const date = timestamp ? new Date(timestamp).toISOString().split('T')[0] : 'nodate';
+  const data = `${ticker}:${norm}:${date}`;
   return crypto.createHash("md5").update(data).digest("hex");
 }
 
@@ -187,7 +222,8 @@ export function generateAnnouncementHash(ticker, title, timestamp) {
 export async function isAnnouncementProcessed(ticker, sourceId, titleHash) {
   const result = await pool.query(
     `SELECT id FROM corporate_announcements 
-     WHERE ticker = $1 AND (source_id = $2 OR title_hash = $3)`,
+     WHERE ticker = $1 
+     AND (source_id = $2 OR title_hash = $3)`,
     [ticker, sourceId, titleHash]
   );
   return result.rows.length > 0;
@@ -197,13 +233,14 @@ export async function isAnnouncementProcessed(ticker, sourceId, titleHash) {
  * Saves a processed announcement to the database.
  */
 export async function saveAnnouncement({
-  stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release
+  stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, attachment_url, filing_date
 }) {
   await pool.query(
     `INSERT INTO corporate_announcements 
-      (stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, processed_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
-    [stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release]
+      (stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, processed_at, attachment_url, filing_date)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15)
+     ON CONFLICT (ticker, source_id) DO NOTHING`,
+    [stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, attachment_url, filing_date]
   );
 }
 
@@ -316,4 +353,110 @@ export async function extractTextFromPdfUrl(url) {
     }
     return "";
   }
+}
+
+/**
+ * High-level orchestration to sync announcements for a ticker from both NSE and BSE.
+ */
+export async function syncAnnouncementsForTicker(stockId, ticker, lookbackDays = 30) {
+  console.log(`[SYNC] Fetching announcements for ${ticker} (lookback: ${lookbackDays} days)...`);
+  
+  const results = { nse: 0, bse: 0, saved: 0, skipped: 0 };
+
+  // 1. Fetch NSE
+  try {
+    const nseAnnouncements = await fetchNseAnnouncements(ticker, lookbackDays);
+    results.nse = nseAnnouncements.length;
+    for (const ann of nseAnnouncements) {
+      const title = ann.NEWSSUB || "";
+      const sourceId = String(ann.NEWS_ID || "");
+      const timestamp = ann.DT_TM;
+      const titleHash = generateAnnouncementHash(ticker, title, timestamp);
+
+      if (await isAnnouncementProcessed(ticker, sourceId, titleHash)) {
+        results.skipped++;
+        continue;
+      }
+
+      if (!shouldProcessAnnouncement(title)) {
+        results.skipped++;
+        continue;
+      }
+
+      // Basic saving logic
+      await saveAnnouncement({
+        stock_id: stockId,
+        ticker: ticker,
+        source_id: sourceId,
+        title_hash: titleHash,
+        title: title,
+        raw_text: ann.attachment_text || "",
+        priority: "MEDIUM",
+        impact: "NEUTRAL",
+        confidence: "LOW",
+        summary: "NSE Filing",
+        status: "processed",
+        sent_to_telegram: true,
+        is_earnings_release: title.toLowerCase().includes("results"),
+        attachment_url: ann.attachment,
+        filing_date: timestamp
+      });
+      results.saved++;
+    }
+  } catch (err) {
+    console.error(`[NSE SYNC ERROR] ${ticker}:`, err.message);
+  }
+
+  // 2. Fetch BSE (BSE API doesn't support lookback easily, we just process what it gives)
+  // But we skip if ticker doesn't have a scrip code
+  const stockRes = await pool.query("SELECT bse_scrip_code FROM stocks WHERE id = $1", [stockId]);
+  const scripCode = stockRes.rows[0]?.bse_scrip_code;
+  
+  if (scripCode) {
+    try {
+      const bseAnnouncements = await fetchBseAnnouncements(scripCode);
+      results.bse = bseAnnouncements.length;
+      for (const ann of bseAnnouncements) {
+        const title = ann.NEWSSUB || "";
+        const sourceId = String(ann.NEWS_ID || "");
+        const timestamp = ann.DT_TM;
+        const titleHash = generateAnnouncementHash(ticker, title, timestamp);
+
+        if (await isAnnouncementProcessed(ticker, sourceId, titleHash)) {
+          results.skipped++;
+          continue;
+        }
+
+        if (!shouldProcessAnnouncement(title)) {
+          results.skipped++;
+          continue;
+        }
+
+        await saveAnnouncement({
+          stock_id: stockId,
+          ticker: ticker,
+          source_id: sourceId,
+          title_hash: titleHash,
+          title: title,
+          raw_text: "", // BSE doesn't give text easily
+          priority: "MEDIUM",
+          impact: "NEUTRAL",
+          confidence: "LOW",
+          summary: "BSE Filing",
+          status: "processed",
+          sent_to_telegram: true,
+          is_earnings_release: title.toLowerCase().includes("results"),
+          attachment_url: ann.ATTACHMENTNAME 
+            ? (ann.ATTACHMENTNAME.startsWith("http") ? ann.ATTACHMENTNAME : `https://www.bseindia.com/xml-data/corpfiling/AttachLive/${ann.ATTACHMENTNAME}`)
+            : null,
+          filing_date: timestamp
+        });
+        results.saved++;
+      }
+    } catch (err) {
+      console.error(`[BSE SYNC ERROR] ${ticker}:`, err.message);
+    }
+  }
+
+  return results;
 }

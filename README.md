@@ -188,7 +188,8 @@ The app will be available at `http://localhost:5173`.
 │       ├── fetch-results-calendar/ # Upcoming results date fetcher
 │       ├── refresh-all-prices/   # Batch price refresh
 │       ├── refresh-all-financials/ # Batch financials refresh
-│       └── analyze-transcript/   # AI transcript analysis
+│       ├── analyze-transcript/   # AI transcript analysis
+│       ├── run-priority-backfill.js # Utility for bulk XBRL & Screener backfill
 ```
 
 ## Key Features
@@ -201,23 +202,26 @@ The app will be available at `http://localhost:5173`.
 - **Announcements**: On each stock’s detail page, an **Announcements** tab lists downloaded filings (earnings, concall transcripts, investor presentations) by quarter and type with **View** links. Use **Download filings** to fetch from NSE & Screener.
 - **Google Drive upload** (optional): Upload announcements to a Drive folder in a structured layout. See [docs/GOOGLE_DRIVE_SETUP.md](docs/GOOGLE_DRIVE_SETUP.md) for creating a service account and API key.
 
-## V11 Hybrid Intelligence Framework
+## V12 High-Conviction Truth Layer
 
-The platform now operates on a sophisticated **Hybrid Intelligence** decision engine (V11) that integrates transcript-derived signals with external financial data for high-fidelity conviction scoring.
+The platform now operates on a sophisticated **V12 Truth Layer**, upgrading from speculative AI inference to high-fidelity, mechanically verified official data.
 
-### 1. Hybrid Intelligence (Source-Aware Augmentation)
-- **Primary Truth Layer**: Transcripts/Concalls are treated as the primary source of operational reality.
-- **Screener Augmentation**: External financial data (Screener.in) is strictly scoped to augment Balance Sheet and Cash Flow reality.
-- **Source Conflict Resolution**: Deterministic rules that penalize conviction when external data contradicts management narrative.
-- **Alignment Boost**: Conviction is mechanically increased (+5) when independent sources confirm directional strength in primary metrics.
+### 1. Official XBRL Hybrid Engine (V3)
+- **Deep Extraction Beyond P&L**: Moves beyond simple revenue/profit tracking to extract high-impact metrics including **Receivables, Inventory, Borrowings, Cash & Bank, CFO, Capex, and Equity**.
+- **Dual-Engine Logic**: Combines fast NSE API data for core quarterly results with deep local XBRL parsing for balance sheet and cash flow enrichment.
+- **Automated Cloud Backup**: Integrated Google Drive archival. Every raw XBRL filing is automatically uploaded to a structured hierarchy (`Announcements/SYMBOL/QUARTER/`) and linked in the database.
+- **Unified Announcement Hub**: XBRL filings are cross-referenced in the central corporate feed, allowing one-click access from the UI directly to the source document on Drive.
+- **Canonical Normalization**: Automatically standardizes and scales all metrics to Crores, ensuring consistency across diverse filing styles.
+- **Automated Validation**: Built-in math checks flag logic errors in corporate reporting (e.g., PAT exceeding Revenue, misstated Expenses).
 
-### 2. Dual-Tier Metrics Schema
-- **Critical Metrics**: Full source, confidence, and period tracking for high-conviction drivers (OCF/EBITDA, Debt/Equity, Primary Thesis Metric).
-- **Secondary Metrics**: Lean, token-efficient extraction for supporting data (Revenue Growth, Margins).
+### 2. Surgical AI Prompt Wiring
+- **Quarterly Time-Travel**: The `CopyGeminiPrompt` UI strictly scopes historical data to prevent future knowledge from bleeding into past quarter AI backtests.
+- **Truth-Based Momentum**: The `Last 4Q Trend` (Section B) is calculated deterministically from the official XBRL pipeline, not inferred by AI, ensuring high-accuracy `Positive/Negative` momentum signals.
 
-### 3. Decision Logic Hardening
-- **Kill-Switch Supremacy**: High-severity kill switches now explicitly override Multibagger Mode for immediate `CUT` signals.
-- **Ownership Context**: Advanced evaluation of low-promoter structures with institutional backing (avoiding false-negative penalties).
+### 3. Dual-Tier Metrics Schema & Hybrid Rules
+- **Critical Metrics**: Full source, confidence, and period tracking for high-conviction drivers.
+- **Screener Fallback**: Used strategically for annual metrics (ROCE/ROE) and TTM Balance Sheet data when XBRL is sparse.
+- **Kill-Switch Supremacy**: High-severity anomalies explicitly override Multibagger Mode for immediate `CUT` signals.
 - **Promoter Selling Trends**: Automated detection and penalization of consistent distribution trends over multiple quarters.
 - **Explained Cooldown**: Intelligent handling of one-time explained selling events (block deals, PE exits).
 - **Event-Driven Intelligence**: Real-time corporate action ingestion (BSE/NSE) that updates conviction in between quarterly reports.
@@ -261,6 +265,7 @@ supabase stop           # Stop local Supabase
 supabase db reset       # Reset DB and re-apply all migrations
 supabase functions serve # Serve edge functions locally
 npm run dev             # Start frontend dev server
+npm run server          # Start Express backend (Announcement scanner & Files)
 npm run build           # Production build
 ```
 

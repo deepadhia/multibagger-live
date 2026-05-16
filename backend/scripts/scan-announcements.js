@@ -195,9 +195,9 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           continue;
         }
 
-        // 7. Alert if High Priority
+        // 7. Alert if High Priority or Earnings Release
         let sentToTelegram = false;
-        if (aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
+        if (aiResult.is_earnings_release || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
           if (alertsSent >= MAX_ALERTS_PER_RUN) {
             console.warn(`[LIMIT] Max alerts reached for this run. Skipping telegram for ${ticker}`);
           } else if (isDryRun) {
@@ -242,7 +242,9 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           summary: aiResult.summary,
           status: sentToTelegram ? "sent" : "ignored",
           sent_to_telegram: sentToTelegram,
-          is_earnings_release: aiResult.is_earnings_release || false
+          is_earnings_release: aiResult.is_earnings_release || false,
+          attachment_url: docUrl,
+          filing_date: timestamp
         });
 
         // 9. Update Result Date if found

@@ -193,3 +193,21 @@ export function useFinancialMetrics(stockId: string) {
     enabled: !!stockId,
   });
 }
+
+/** Fetch up to 5 most recent XBRL/official quarterly financials for a stock. */
+export function useXbrlMetrics(stockId: string) {
+  return useQuery({
+    queryKey: ["xbrl-metrics", stockId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("xbrl_metrics_quarterly")
+        .select("*")
+        .eq("stock_id", stockId)
+        .order("period_end_date", { ascending: false })
+        .limit(12);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!stockId,
+  });
+}

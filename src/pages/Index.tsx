@@ -155,7 +155,7 @@ const Index = () => {
       );
     }
     allOrders.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-    setOrderAlerts(allOrders.slice(0, 15));
+    setOrderAlerts(allOrders.slice(0, 10));
     allTranscripts.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     setTranscriptAlerts(allTranscripts);
     setLoadingOrders(false);

@@ -16,11 +16,12 @@ const WINDOW_OPTIONS = [
   { value: "3q", label: "3 quarters" },
   { value: "6m", label: "6 months" },
   { value: "1y", label: "1 year" },
+  { value: "3y", label: "3 years" },
 ] as const;
 
 export function FetchFilingsButton() {
   const [fetching, setFetching] = useState(false);
-  const [window, setWindow] = useState<"3q" | "6m" | "1y">("1y");
+  const [window, setWindow] = useState<"3q" | "6m" | "1y" | "3y">("1y");
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -69,7 +70,7 @@ export function FetchFilingsButton() {
 
   return (
     <div className="flex items-center gap-2">
-      <Select value={window} onValueChange={(v) => setWindow(v as "3q" | "6m" | "1y")}>
+      <Select value={window} onValueChange={(v) => setWindow(v as "3q" | "6m" | "1y" | "3y")}>
         <SelectTrigger className="w-[110px] h-8 font-mono text-xs border-border">
           <SelectValue />
         </SelectTrigger>

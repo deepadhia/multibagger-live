@@ -37,20 +37,83 @@ export function InvestmentThesisEditor({ stockId, thesis }: Props) {
     }
   };
 
+  const renderThesis = () => {
+    if (!thesis) {
+      return (
+        <span className="text-muted-foreground italic">
+          No thesis written yet. Click Edit to add your investment thesis.
+        </span>
+      );
+    }
+
+    try {
+      // Try parsing as JSON for structured thesis
+      const structured = JSON.parse(thesis);
+      if (typeof structured === "object" && structured !== null) {
+        return (
+          <div className="space-y-3 mt-1">
+            {structured.primary_thesis && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-tight">Primary Thesis</p>
+                <p className="text-sm text-foreground leading-relaxed">{structured.primary_thesis}</p>
+              </div>
+            )}
+            {structured.key_catalysts && Array.isArray(structured.key_catalysts) && structured.key_catalysts.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-tight">Key Catalysts</p>
+                <ul className="list-disc list-inside text-sm text-foreground/80">
+                  {structured.key_catalysts.map((c: string, i: number) => <li key={i}>{c}</li>)}
+                </ul>
+              </div>
+            )}
+            {structured.risk_factors && Array.isArray(structured.risk_factors) && structured.risk_factors.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-tight">Risk Factors</p>
+                <ul className="list-disc list-inside text-sm text-foreground/80">
+                  {structured.risk_factors.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                </ul>
+              </div>
+            )}
+            {structured.conviction_drivers && Array.isArray(structured.conviction_drivers) && structured.conviction_drivers.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-tight">Conviction Drivers</p>
+                <p className="text-sm text-foreground/80">{structured.conviction_drivers.join(", ")}</p>
+              </div>
+            )}
+          </div>
+        );
+      }
+    } catch (e) {
+      // Not JSON, fallback to plain text
+    }
+
+    return (
+      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+        {thesis}
+      </p>
+    );
+  };
+
   if (!editing) {
     return (
-      <Card className="p-4 bg-card border-border card-glow">
-        <div className="flex items-center justify-between mb-1.5">
+      <Card className="p-4 bg-card border-border card-glow h-full">
+        <div className="flex items-center justify-between mb-2">
           <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
             <FileText className="h-3 w-3" /> Investment Thesis
           </h3>
-          <Button variant="ghost" size="sm" onClick={() => { setValue(thesis || ""); setEditing(true); }} className="h-6 px-2 text-[10px] font-mono">
+          <Button variant="ghost" size="sm" onClick={() => { 
+            let displayValue = thesis || "";
+            try {
+              const parsed = JSON.parse(displayValue);
+              displayValue = JSON.stringify(parsed, null, 2);
+            } catch (e) {}
+            setValue(displayValue); 
+            setEditing(true); 
+          }} className="h-6 px-2 text-[10px] font-mono">
             <Edit3 className="h-3 w-3 mr-1" /> Edit
           </Button>
         </div>
-        <p className="text-sm text-foreground leading-relaxed">
-          {thesis || <span className="text-muted-foreground italic">No thesis written yet. Click Edit to add your investment thesis.</span>}
-        </p>
+        {renderThesis()}
       </Card>
     );
   }

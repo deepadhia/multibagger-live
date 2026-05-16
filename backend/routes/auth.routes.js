@@ -26,16 +26,43 @@ function cookieSecure() {
 }
 
 function getOAuthClientConfig() {
-  if (!OAUTH_CLIENT_PATH || !fs.existsSync(OAUTH_CLIENT_PATH)) return null;
-  const raw = fs.readFileSync(OAUTH_CLIENT_PATH, "utf8");
-  const data = JSON.parse(raw);
-  const client = data.web || data.installed;
-  if (!client?.client_id || !client?.client_secret) return null;
-  return {
-    clientId: client.client_id,
-    clientSecret: client.client_secret,
-    redirectUri: `${BACKEND_URL}/api/auth/drive/callback`,
-  };
+  // 1) Try file path (local dev)
+  if (OAUTH_CLIENT_PATH && fs.existsSync(OAUTH_CLIENT_PATH)) {
+    try {
+      const raw = fs.readFileSync(OAUTH_CLIENT_PATH, "utf8");
+      const data = JSON.parse(raw);
+      const client = data.web || data.installed;
+      if (client?.client_id && client?.client_secret) {
+        return {
+          clientId: client.client_id,
+          clientSecret: client.client_secret,
+          redirectUri: `${BACKEND_URL}/api/auth/drive/callback`,
+        };
+      }
+    } catch (e) {
+      console.error("[Drive Auth] Failed to parse client_secret.json:", e.message);
+    }
+  }
+
+  // 2) Fall back to env var (production/Render)
+  const envJson = process.env.GOOGLE_OAUTH_CLIENT_JSON;
+  if (envJson) {
+    try {
+      const data = JSON.parse(envJson);
+      const client = data.web || data.installed;
+      if (client?.client_id && client?.client_secret) {
+        return {
+          clientId: client.client_id,
+          clientSecret: client.client_secret,
+          redirectUri: `${BACKEND_URL}/api/auth/drive/callback`,
+        };
+      }
+    } catch (e) {
+      console.error("[Drive Auth] GOOGLE_OAUTH_CLIENT_JSON is not valid JSON:", e.message);
+    }
+  }
+
+  return null;
 }
 
 /**

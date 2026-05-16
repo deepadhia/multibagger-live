@@ -16,7 +16,7 @@ async function runMigrations() {
 
   for (const file of files) {
     // Only run the new migrations I created today
-    if (file.startsWith("20260426")) {
+    if (file.startsWith("20260426") || file.startsWith("20260515")) {
       console.log(`Applying migration: ${file}...`);
       const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
       
