@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { QuarterlyMetricsTab } from "@/components/QuarterlyMetricsTab";
 import { DecisionAlpha } from "@/components/DecisionAlpha";
+import { GoogleDriveStatus } from "@/components/GoogleDriveStatus";
 
 
 const chartTooltipStyle = {
@@ -1319,17 +1320,7 @@ export default function StockDetailPage() {
                     Downloaded filings — earnings, concall transcripts, investor presentations
                   </h3>
                   <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end sm:max-w-none">
-                    {(!driveConfigured || needsConnect) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="font-mono text-xs shrink-0"
-                        onClick={() => { window.location.href = apiUrl("/api/auth/drive/start"); }}
-                      >
-                        <ExternalLink className="h-3 w-3 mr-1" />
-                        Connect Google Drive
-                      </Button>
-                    )}
+                    <GoogleDriveStatus />
                     {driveConfigured && (
                       <>
                         {filings.length > 0 && (

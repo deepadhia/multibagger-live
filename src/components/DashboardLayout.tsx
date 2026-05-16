@@ -1,6 +1,7 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { FetchFilingsButton } from "@/components/FetchFilingsButton";
+import { GoogleDriveStatus } from "@/components/GoogleDriveStatus";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { LogOut } from "lucide-react";
@@ -16,6 +17,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           <header className="h-12 flex items-center border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
             <SidebarTrigger className="ml-2" />
             <div className="ml-auto mr-4 flex items-center gap-3">
+              <GoogleDriveStatus />
               <FetchFilingsButton />
               {user?.username ? (
                 <span className="font-mono text-xs text-muted-foreground hidden sm:inline">{user.username}</span>

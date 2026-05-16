@@ -441,8 +441,15 @@ function getDriveStatus() {
   const configured = isDriveConfigured();
   const oauthClientAndFolder = Boolean(DRIVE_FOLDER_ID && getOAuthClientConfig());
   const hasTokens = Boolean(getStoredOAuthTokens()?.refresh_token);
+  
+  // needsConnect is true if we HAVE a client config but NO tokens yet
   const needsConnect = oauthClientAndFolder && !hasTokens && !isServiceAccountConfigured();
-  return { driveConfigured: configured, needsConnect };
+  
+  return { 
+    driveConfigured: configured, 
+    needsConnect,
+    isOAuthConfigured: oauthClientAndFolder 
+  };
 }
 
 export { isDriveConfigured, getDriveStatus };

@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, FileText, Upload, CheckCircle2, AlertTriangle, Edit3 } from "lucide-react";
+import { GoogleDriveStatus } from "@/components/GoogleDriveStatus";
 
 interface GeminiPayload {
   quarterly_snapshot: {
@@ -142,11 +143,16 @@ export default function TranscriptsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-mono font-bold text-primary terminal-glow">Import Gemini Analysis</h1>
-          <p className="text-sm text-muted-foreground font-mono mt-1">
-            Paste structured JSON from Gemini to ingest quarterly analysis & management promises
-          </p>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-mono font-bold text-primary terminal-glow">Import Gemini Analysis</h1>
+            <p className="text-sm text-muted-foreground font-mono mt-1">
+              Paste structured JSON from Gemini to ingest quarterly analysis & management promises
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <GoogleDriveStatus />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
