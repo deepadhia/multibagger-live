@@ -108,6 +108,7 @@ const Index = () => {
   const [transcriptAlerts, setTranscriptAlerts] = useState<Array<{ stock: any; title: string; date: string; url: string; type: string; quarter: string }>>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [bulkSyncing, setBulkSyncing] = useState(false);
 
   const handleScanAnnouncements = async () => {
     setScanning(true);
@@ -121,6 +122,28 @@ const Index = () => {
       toast({ title: "Scan failed", description: err.message, variant: "destructive" });
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handleBulkSuperSync = async () => {
+    const confirm = window.confirm("☢️ NUCLEAR OPTION ☢️\n\nThis will DELETE ALL announcements and documents for ALL shares in the system and start a fresh resync. This will take 10-20 minutes in the background.\n\nAre you absolutely sure?");
+    if (!confirm) return;
+
+    setBulkSyncing(true);
+    try {
+      const res = await apiFetch("/api/transcripts/bulk-super-sync", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Bulk sync failed");
+      
+      toast({ 
+        title: "Bulk Master Sync Started", 
+        description: "Nuclear reset triggered. The system is now resyncing everything for all stocks in the background.",
+        variant: "default"
+      });
+    } catch (err: any) {
+      toast({ title: "Bulk Sync Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setBulkSyncing(false);
     }
   };
 
@@ -448,6 +471,16 @@ const Index = () => {
               >
                 {scanning ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1 text-terminal-green" />}
                 Trigger Global Scan
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleBulkSuperSync}
+                disabled={bulkSyncing}
+                className="h-6 px-2 text-[10px] font-mono border-terminal-red/40 text-terminal-red hover:bg-terminal-red/10"
+              >
+                {bulkSyncing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1 text-terminal-red" />}
+                Bulk Master Sync (All Shares)
               </Button>
               <Button
                 variant="ghost"

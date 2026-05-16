@@ -113,6 +113,7 @@ export default function StockDetailPage() {
   const [fetchingScreenerData, setFetchingScreenerData] = useState(false);
   const [resettingInsights, setResettingInsights] = useState(false);
   const [resettingFiles, setResettingFiles] = useState(false);
+  const [superSyncing, setSuperSyncing] = useState(false);
 
   const { data: filingsData, isLoading: filingsLoading, refetch: refetchFilings } = useQuery({
     queryKey: ["transcripts-files", stock?.ticker],
@@ -354,6 +355,46 @@ export default function StockDetailPage() {
       });
     } finally {
       setDeletingFileKey(null);
+    }
+  };
+
+  const handleSuperSync = async () => {
+    if (!stock) return;
+    if (superSyncing) return;
+    
+    const confirm = window.confirm("This will DELETE ALL announcements and files for this stock, then fetch everything fresh. Continue?");
+    if (!confirm) return;
+
+    setSuperSyncing(true);
+    try {
+      const r = await apiFetch("/api/transcripts/super-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stockId: stock.id, ticker: stock.ticker }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error || `Super sync failed: ${r.status}`);
+      
+      toast({
+        title: "Master Sync Complete",
+        description: `Reset done. Synced ${data.announcementsSynced || 0} news items and started file downloads.`,
+      });
+      
+      // Refresh all related data
+      queryClient.invalidateQueries({ queryKey: ["corporate-announcements", stock.id] });
+      queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
+      queryClient.invalidateQueries({ queryKey: ["xbrl-metrics", stock.id] });
+      queryClient.invalidateQueries({ queryKey: ["quarterly-metrics-xbrl", stock.id] });
+      
+      refetchFilings();
+    } catch (err: any) {
+      toast({
+        title: "Master Sync Failed",
+        description: err?.message ?? "Error during deep sync.",
+        variant: "destructive",
+      });
+    } finally {
+      setSuperSyncing(false);
     }
   };
 
@@ -1299,6 +1340,22 @@ export default function StockDetailPage() {
                 <h3 className="font-mono text-sm font-bold uppercase tracking-wider text-foreground">
                   Live News Feed (NSE/BSE)
                 </h3>
+              </div>
+              <div className="flex justify-between items-center bg-muted/20 p-3 rounded-lg border border-dashed border-border mb-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-foreground">Master Reset &amp; Super Sync</p>
+                  <p className="text-[10px] text-muted-foreground leading-tight">Delete all announcements + all documents, then resync from scratch (1yr lookback).</p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleSuperSync} 
+                  disabled={superSyncing}
+                  className="font-mono text-xs border-terminal-red/30 text-terminal-red hover:bg-terminal-red/10 h-8"
+                >
+                  {superSyncing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                  Nuclear Reset &amp; Sync
+                </Button>
               </div>
               <CorporateAnnouncements stockId={id!} />
             </div>

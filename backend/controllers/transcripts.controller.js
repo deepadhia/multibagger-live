@@ -8,8 +8,11 @@ import {
   getSymbolDebugInfo,
   getScreenerLinksDebug,
   deleteFilingFile,
+  resetAllFilesForSymbol,
 } from "../services/transcripts.service.js";
 import { uploadAnnouncementsToDrive, isDriveConfigured, getDriveStatus } from "../services/drive.service.js";
+import { syncAnnouncementsForTicker } from "../services/announcement.service.js";
+import { pool } from "../db/pool.js";
 
 export async function downloadTranscriptsHandler(req, res) {
   const { window = "3q", symbols, stockIds, useWatchlist = true, onlyMissing = false, uploadAfterDownload = false } = req.body ?? {};
@@ -196,4 +199,108 @@ export async function deleteFilingHandler(req, res) {
     });
   }
 }
+
+/**
+ * POST /api/transcripts/super-sync
+ * Nuclear option: deletes all announcements, all files, then resyncs news and downloads all PDFs/XBRLs.
+ */
+export async function superSyncHandler(req, res) {
+  const { stockId, ticker } = req.body ?? {};
+  if (!stockId || !ticker) {
+    return res.status(400).json({ ok: false, error: "stockId and ticker are required" });
+  }
+
+  const normalizedTicker = String(ticker).toUpperCase();
+
+  try {
+    // 1. Delete all corporate announcements for this stock
+    await pool.query("DELETE FROM corporate_announcements WHERE stock_id = $1 OR ticker = $2", [stockId, normalizedTicker]);
+    
+    // 2. Delete all local files and Drive copies
+    const resetResult = await resetAllFilesForSymbol(normalizedTicker);
+    
+    // 3. Sync Announcements (365 days lookback)
+    const annSync = await syncAnnouncementsForTicker(stockId, normalizedTicker, 365);
+    
+    // 4. Download Filings (1y window) + XBRL Extraction (triggered inside pipeline)
+    const pipelineResult = await downloadTranscriptsPipeline({
+      symbols: [normalizedTicker],
+      window: "1y",
+      uploadAfterDownload: true
+    });
+
+    res.json({
+      ok: true,
+      message: `Super sync completed for ${normalizedTicker}`,
+      deletedFiles: resetResult.deleted,
+      deletedFromDrive: resetResult.deletedFromDrive,
+      announcementsSynced: annSync.saved,
+      pipeline: pipelineResult
+    });
+  } catch (err) {
+    console.error("transcripts/super-sync error:", err);
+    res.status(500).json({
+      ok: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+  }
+}
+
+/**
+ * POST /api/transcripts/bulk-super-sync
+ * The "Big Red Button": wipes EVERY announcement and EVERY file for EVERY stock, then resyncs all.
+ * Runs in background.
+ */
+export async function bulkSuperSyncHandler(_req, res) {
+  try {
+    // Return immediately because this will take a long time
+    res.json({ ok: true, message: "Bulk Master Sync initiated in background. This will take several minutes." });
+
+    (async () => {
+      try {
+        console.log("[BULK SYNC] Starting system-wide nuclear reset...");
+        
+        // 1. Wipe all corporate announcements
+        await pool.query("DELETE FROM corporate_announcements");
+        
+        // 2. Wipe all local files and Drive copies for all symbols
+        const resetResult = await resetAllTranscriptFiles();
+        console.log(`[BULK SYNC] Reset done. Deleted ${resetResult.deleted} local files, ${resetResult.deletedFromDrive} Drive files.`);
+        
+        // 3. Get all tickers
+        const { rows: stocks } = await pool.query("SELECT id, ticker FROM stocks");
+        
+        // 4. Sync Announcements for all (Serial to avoid rate limits, but could be parallelized in chunks)
+        console.log(`[BULK SYNC] Syncing news for ${stocks.length} stocks...`);
+        for (const stock of stocks) {
+          try {
+            await syncAnnouncementsForTicker(stock.id, stock.ticker, 365);
+          } catch (e) {
+            console.error(`[BULK SYNC] News sync failed for ${stock.ticker}:`, e.message);
+          }
+        }
+        
+        // 5. Download all filings + XBRL for all (1y window)
+        console.log("[BULK SYNC] Starting download pipeline for all stocks...");
+        await downloadTranscriptsPipeline({
+          useWatchlist: false,
+          window: "1y",
+          uploadAfterDownload: true
+        });
+        
+        console.log("[BULK SYNC] Bulk master sync completed successfully.");
+      } catch (err) {
+        console.error("[BULK SYNC] Fatal error in background task:", err);
+      }
+    })();
+  } catch (err) {
+    console.error("transcripts/bulk-super-sync error:", err);
+    res.status(500).json({
+      ok: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+  }
+}
+
+
 
