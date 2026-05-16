@@ -9,8 +9,8 @@ import { extractToken, SESSION_COOKIE_NAME, verifyJwt } from "../lib/authToken.j
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:8080";
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
+const FRONTEND_URL = (process.env.FRONTEND_URL || "http://localhost:8080").trim().replace(/\/$/, "");
+const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:4000").trim().replace(/\/$/, "");
 const OAUTH_CLIENT_PATH = process.env.GOOGLE_OAUTH_CLIENT_JSON_PATH
   ? path.isAbsolute(process.env.GOOGLE_OAUTH_CLIENT_JSON_PATH)
     ? process.env.GOOGLE_OAUTH_CLIENT_JSON_PATH
@@ -133,6 +133,9 @@ export function meHandler(req, res) {
  */
 export function driveStartHandler(_req, res) {
   const config = getOAuthClientConfig();
+  if (config) {
+    console.log("[Drive Auth] Starting OAuth flow with redirectUri:", config.redirectUri);
+  }
   if (!config) {
     return res.status(503).json({
       ok: false,

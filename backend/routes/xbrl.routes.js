@@ -1,5 +1,6 @@
 import express from "express";
 import { fetchAndStoreXbrlMetrics, getXbrlMetricsForPrompt } from "../services/xbrl.service.js";
+import { calculateAlphaSignals } from "../services/xbrl/decisionEngine.js";
 import { pool } from "../db/pool.js";
 
 export const xbrlRouter = express.Router();

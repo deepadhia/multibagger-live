@@ -697,6 +697,68 @@ export async function resetAllTranscriptFiles() {
 }
 
 /**
+ * Hard reset for a single symbol: delete *all* downloaded transcript/filing PDFs and their Drive copies.
+ */
+export async function resetAllFilesForSymbol(symbol) {
+  const normalized = String(symbol || "").toUpperCase();
+  const errors = [];
+  let deleted = 0;
+  let deletedFromDrive = 0;
+  const dataDir = getDataDir();
+  const symbolDir = path.join(dataDir, normalized);
+
+  if (!fs.existsSync(symbolDir) || !fs.statSync(symbolDir).isDirectory()) {
+    return { deleted: 0, deletedFromDrive: 0, errors: [] };
+  }
+
+  const driveConfigured = isDriveConfigured();
+
+  for (const quarterName of fs.readdirSync(symbolDir)) {
+    const quarterDir = path.join(symbolDir, quarterName);
+    if (!fs.statSync(quarterDir).isDirectory()) continue;
+
+    const entries = fs.readdirSync(quarterDir);
+    for (const filename of entries) {
+      if (filename === "meta.json") continue;
+      const filePath = path.join(quarterDir, filename);
+      try {
+        const linkRes = await pool.query(
+          "SELECT drive_file_id FROM filing_drive_links WHERE symbol = $1 AND quarter = $2 AND filename = $3",
+          [normalized, quarterName, filename]
+        );
+        const row = linkRes.rows?.[0];
+        if (row?.drive_file_id && driveConfigured) {
+          await deleteDriveFile(row.drive_file_id);
+          deletedFromDrive++;
+        }
+        await pool.query(
+          "DELETE FROM filing_drive_links WHERE symbol = $1 AND quarter = $2 AND filename = $3",
+          [normalized, quarterName, filename]
+        );
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          deleted++;
+        }
+      } catch (err) {
+        errors.push(`${normalized}/${quarterName}/${filename}: ${err.message}`);
+      }
+    }
+    try {
+      const metaPath = path.join(quarterDir, "meta.json");
+      if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+      fs.rmdirSync(quarterDir);
+    } catch (_) {}
+  }
+
+  try {
+    if (fs.readdirSync(symbolDir).length === 0) fs.rmdirSync(symbolDir);
+  } catch (_) {}
+
+  return { deleted, deletedFromDrive, errors: errors.length ? errors : undefined };
+}
+
+
+/**
  * Delete a single filing: local file (if any), from Drive (if uploaded), and from filing_drive_links.
  * Also removes the entry from meta.json.
  * Returns { ok, deletedLocal, deletedFromDrive, error? }.

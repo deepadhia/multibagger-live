@@ -186,17 +186,27 @@ export async function getAnnouncementsHandler(req, res) {
     const stockRes = await pool.query("SELECT ticker FROM stocks WHERE id = $1", [id]);
     const ticker = stockRes.rows[0]?.ticker;
 
+    // Deduplicate by title_hash and exclude XBRL filings
     const result = await pool.query(
-      `SELECT * FROM corporate_announcements 
-       WHERE stock_id = $1 OR ticker = $2
-       ORDER BY filing_date DESC 
+      `SELECT DISTINCT ON (title_hash) * 
+       FROM corporate_announcements 
+       WHERE (stock_id = $1 OR ticker = $2)
+       AND title NOT ILIKE '%XBRL%'
+       AND summary NOT ILIKE '%XBRL%'
+       ORDER BY title_hash, filing_date DESC 
        LIMIT 100`,
       [id, ticker]
     );
 
+    // Re-sort by filing_date since DISTINCT ON requires sorting by the distinct column first
+    const sorted = result.rows.sort((a, b) => 
+      new Date(b.filing_date || b.processed_at).getTime() - 
+      new Date(a.filing_date || a.processed_at).getTime()
+    );
+
     return res.json({
       ok: true,
-      announcements: result.rows
+      announcements: sorted
     });
   } catch (err) {
     console.error("get-announcements error:", err);

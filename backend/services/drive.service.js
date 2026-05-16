@@ -20,7 +20,7 @@ const OAUTH_CLIENT_PATH = process.env.GOOGLE_OAUTH_CLIENT_JSON_PATH
   : "";
 const OAUTH_TOKENS_PATH = path.resolve(__dirname, "../secrets/drive-oauth-tokens.json");
 // Must match the redirect_uri used during the original OAuth consent screen
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
+const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:4000").trim().replace(/\/$/, "");
 const OAUTH_REDIRECT_URI = `${BACKEND_URL}/api/auth/drive/callback`;
 
 const DRIVE_UPLOAD_FOLDER_NAME = "Announcements";
