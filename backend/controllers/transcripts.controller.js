@@ -219,13 +219,13 @@ export async function superSyncHandler(req, res) {
     // 2. Delete all local files and Drive copies
     const resetResult = await resetAllFilesForSymbol(normalizedTicker);
     
-    // 3. Sync Announcements (365 days lookback)
-    const annSync = await syncAnnouncementsForTicker(stockId, normalizedTicker, 365);
+    // 3. Sync Announcements (730 days lookback - FY2024+)
+    const annSync = await syncAnnouncementsForTicker(stockId, normalizedTicker, 730);
     
-    // 4. Download Filings (1y window) + XBRL Extraction (triggered inside pipeline)
+    // 4. Download Filings (2y window) + XBRL Extraction (triggered inside pipeline)
     const pipelineResult = await downloadTranscriptsPipeline({
       symbols: [normalizedTicker],
-      window: "1y",
+      window: "2y",
       uploadAfterDownload: true
     });
 
@@ -270,21 +270,21 @@ export async function bulkSuperSyncHandler(_req, res) {
         // 3. Get all tickers
         const { rows: stocks } = await pool.query("SELECT id, ticker FROM stocks");
         
-        // 4. Sync Announcements for all (Serial to avoid rate limits, but could be parallelized in chunks)
+        // 4. Sync Announcements for all (730 days - FY2024+)
         console.log(`[BULK SYNC] Syncing news for ${stocks.length} stocks...`);
         for (const stock of stocks) {
           try {
-            await syncAnnouncementsForTicker(stock.id, stock.ticker, 365);
+            await syncAnnouncementsForTicker(stock.id, stock.ticker, 730);
           } catch (e) {
             console.error(`[BULK SYNC] News sync failed for ${stock.ticker}:`, e.message);
           }
         }
         
-        // 5. Download all filings + XBRL for all (1y window)
+        // 5. Download all filings + XBRL for all (2y window)
         console.log("[BULK SYNC] Starting download pipeline for all stocks...");
         await downloadTranscriptsPipeline({
           useWatchlist: false,
-          window: "1y",
+          window: "2y",
           uploadAfterDownload: true
         });
         

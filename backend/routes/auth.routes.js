@@ -36,7 +36,7 @@ function getOAuthClientConfig() {
         return {
           clientId: client.client_id,
           clientSecret: client.client_secret,
-          redirectUri: `${BACKEND_URL}/api/auth/drive/callback`,
+          redirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI || `${BACKEND_URL}/api/auth/drive/callback`,
         };
       }
     } catch (e) {
@@ -54,7 +54,7 @@ function getOAuthClientConfig() {
         return {
           clientId: client.client_id,
           clientSecret: client.client_secret,
-          redirectUri: `${BACKEND_URL}/api/auth/drive/callback`,
+          redirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI || `${BACKEND_URL}/api/auth/drive/callback`,
         };
       }
     } catch (e) {

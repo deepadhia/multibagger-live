@@ -4,6 +4,7 @@
  * - Only earnings_result and investor_presentation from NSE; concall comes from Screener.
  */
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import crypto from "node:crypto";
 import axios from "axios";
@@ -21,7 +22,7 @@ import { eventDateToResultsQuarter } from "./quarterFromEventDate.js";
 import { quarterDirHasCategory } from "./quarterDirCategories.js";
 
 // Same categories and logic as Python nse_filing_downloader (earnings + presentation only; concall from Screener)
-const ALLOWED_CATEGORIES = new Set(["earnings_result", "investor_presentation", "raw_xbrl"]);
+const ALLOWED_CATEGORIES = new Set(["earnings_result", "investor_presentation"]);
 
 // NSE API uses attchmntText (Python spelling); support both
 function getAttachmentText(ann) {
@@ -456,26 +457,34 @@ async function downloadIntegratedFilings(symbol, fromStr, toStr, baseDir) {
     const filings = response.data.data || [];
     let downloaded = 0;
 
+    // Deduplicate by quarter: only keep the latest one for each FY-QX
+    const latestByQuarter = new Map();
     for (const f of filings) {
       if (!f.xbrl || f.xbrl === "-" || f.xbrl.includes("null")) continue;
-
       const qeDate = f.qe_Date || f.periodEnded || "unknown";
       const quarter = inferQuarterFromDate(qeDate);
-      if (quarter === "UNKNOWN") {
-        console.warn(`[NSE] Skipping integrated filing with unknown date: ${f.xbrl}`);
-        continue;
+      if (quarter === "UNKNOWN") continue;
+
+      // Use filename as a proxy for 'latest' if we have multiple (usually higher ID means later)
+      const xbrlBase = f.xbrl.split('/').pop();
+      const existing = latestByQuarter.get(quarter);
+      if (!existing || xbrlBase > existing.xbrlBase) {
+        latestByQuarter.set(quarter, { ...f, quarter, xbrlBase, qeDate });
       }
+    }
+
+    for (const f of latestByQuarter.values()) {
+      const { quarter, qeDate, xbrlBase, xbrl } = f;
       const folder = path.join(baseDir, symbol, quarter);
       ensureDirSync(folder);
 
-      const xbrlBase = f.xbrl.split('/').pop();
       const filename = `${symbol}_${quarter}_raw_xbrl_${qeDate}_${xbrlBase}`;
       const savePath = path.join(folder, filename);
 
       if (fs.existsSync(savePath)) continue;
 
-      console.log(`[NSE] Downloading Integrated XBRL for ${symbol}: ${f.xbrl}`);
-      const result = await downloadFile(session, f.xbrl, savePath);
+      console.log(`[NSE] Downloading Latest Integrated XBRL for ${symbol} (${quarter}): ${xbrl}`);
+      const result = await downloadFile(session, xbrl, savePath);
       if (result && result.success) {
         downloaded += 1;
       }
@@ -606,8 +615,18 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+const isMain = process.argv[1] && (() => {
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
+
+if (isMain) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
 

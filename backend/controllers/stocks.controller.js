@@ -186,13 +186,17 @@ export async function getAnnouncementsHandler(req, res) {
     const stockRes = await pool.query("SELECT ticker FROM stocks WHERE id = $1", [id]);
     const ticker = stockRes.rows[0]?.ticker;
 
-    // Deduplicate by title_hash and exclude XBRL filings
+    // Deduplicate by title_hash and exclude XBRL filings unless they are results
     const result = await pool.query(
       `SELECT DISTINCT ON (title_hash) * 
        FROM corporate_announcements 
        WHERE (stock_id = $1 OR ticker = $2)
-       AND title NOT ILIKE '%XBRL%'
-       AND summary NOT ILIKE '%XBRL%'
+       AND (
+         (title NOT ILIKE '%XBRL%' AND summary NOT ILIKE '%XBRL%')
+         OR title ILIKE '%Results%'
+         OR summary ILIKE '%Results%'
+         OR is_earnings_release = true
+       )
        ORDER BY title_hash, filing_date DESC 
        LIMIT 100`,
       [id, ticker]

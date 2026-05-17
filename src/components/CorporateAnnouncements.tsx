@@ -27,6 +27,7 @@ export function CorporateAnnouncements({ stockId }: { stockId: string }) {
   const { toast } = useToast();
   const [refreshing, setRefreshing] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["corporate-announcements", stockId],
@@ -103,11 +104,12 @@ export function CorporateAnnouncements({ stockId }: { stockId: string }) {
     );
   }
 
-  // Show strictly the latest 10 items by default
-  const initialDisplayCount = 20;
+  // Pagination logic
+  const itemsPerPage = 5;
+  const totalPages = Math.ceil(announcements.length / itemsPerPage);
   
-  const displayedAnnouncements = showAll ? announcements : announcements.slice(0, initialDisplayCount);
-  const hasMore = announcements.length > displayedAnnouncements.length;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const displayedAnnouncements = announcements.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <div className="space-y-3">
@@ -191,17 +193,31 @@ export function CorporateAnnouncements({ stockId }: { stockId: string }) {
         </Card>
       ))}
       
-      {hasMore && (
-        <div className="pt-2 flex justify-center">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="font-mono text-xs w-full sm:w-auto"
-            onClick={() => setShowAll(true)}
-          >
-            <ChevronDown className="h-3 w-3 mr-1" />
-            Show More ({announcements.length - displayedAnnouncements.length} older items)
-          </Button>
+      {totalPages > 1 && (
+        <div className="pt-2 flex items-center justify-between gap-2">
+          <p className="text-[10px] font-mono text-muted-foreground">
+            Page {currentPage} of {totalPages}
+          </p>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-7 px-3 font-mono text-[10px]"
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-7 px-3 font-mono text-[10px]"
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>
