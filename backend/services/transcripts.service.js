@@ -194,6 +194,7 @@ const CATEGORY_LABELS = {
   concall_transcript: "Concall transcript",
   investor_presentation: "Investor presentation",
   raw_xbrl: "XBRL Data",
+  order_win_or_ca_filing: "Order Win or Important Filing",
 };
 
 function getCategoryAndLabel(filename) {
@@ -205,6 +206,7 @@ function getCategoryAndLabel(filename) {
   if (lower.includes("concall_transcript")) category = "concall_transcript";
   else if (lower.includes("earnings_result")) category = "earnings_result";
   else if (lower.includes("investor_presentation")) category = "investor_presentation";
+  else if (lower.includes("order_win_or_ca_filing")) category = "order_win_or_ca_filing";
   else if (lower.includes("raw_xbrl") || ext === ".xml") category = "raw_xbrl";
 
   const label = CATEGORY_LABELS[category] || base.replace(/_/g, " ");
@@ -231,8 +233,16 @@ export async function listDownloadedFilesForSymbol(symbol) {
   const files = [];
   const symbolDirExists = fs.existsSync(symbolDir) && fs.statSync(symbolDir).isDirectory();
 
+  const isQuarterAllowedUI = (q) => {
+    const match = String(q || "").match(/^FY(\d{2})-Q[1-4]$/i);
+    if (!match) return false;
+    const fy = Number(match[1]);
+    return fy >= 24; // Strictly allow FY24 onwards (FY24, FY25, FY26, etc.)
+  };
+
   if (symbolDirExists) {
     for (const quarterName of fs.readdirSync(symbolDir)) {
+      if (!isQuarterAllowedUI(quarterName)) continue;
       const quarterDir = path.join(symbolDir, quarterName);
       if (!fs.statSync(quarterDir).isDirectory()) continue;
 
@@ -244,7 +254,7 @@ export async function listDownloadedFilesForSymbol(symbol) {
       for (const filename of entries) {
         const meta = readMetaForFile(quarterDir, filename);
         // Categorisation: use meta.json category when present, else infer from filename (earnings_result, concall_transcript, investor_presentation)
-        const fromMeta = meta?.category && ["earnings_result", "concall_transcript", "investor_presentation"].includes(meta.category)
+        const fromMeta = meta?.category && ["earnings_result", "concall_transcript", "investor_presentation", "order_win_or_ca_filing", "other"].includes(meta.category)
           ? meta.category
           : null;
         const { category, label } = fromMeta
@@ -286,6 +296,21 @@ export async function listDownloadedFilesForSymbol(symbol) {
 
   const driveLinks = await getFilingDriveLinks(normalized);
   const driveLinksFull = await getFilingDriveLinksRows(normalized);
+  
+  // Clean up out-of-window filing links from Google Drive / database
+  const outOfWindowRows = driveLinksFull.filter((row) => !isQuarterAllowedUI(row.quarter));
+  if (outOfWindowRows.length > 0) {
+    for (const row of outOfWindowRows) {
+      pool.query("DELETE FROM filing_drive_links WHERE symbol = $1 AND quarter = $2 AND filename = $3", [normalized, row.quarter, row.filename]).catch((e) => {
+        console.error(`Failed to delete out-of-window database record: ${e.message}`);
+      });
+      // Try to clean up from Google Drive if it has file id
+      if (row.drive_file_id) {
+        deleteDriveFile(row.drive_file_id).catch(() => {});
+      }
+    }
+  }
+
   const onDiskKeys = new Set(files.map((f) => `${f.quarter}\0${f.filename}`));
   for (const f of files) {
     const key = `${f.quarter}\0${f.filename}`;
@@ -296,6 +321,7 @@ export async function listDownloadedFilesForSymbol(symbol) {
   }
   // Include filings that exist only in DB (e.g. local file was deleted after Drive upload) so announcements list stays complete.
   for (const row of driveLinksFull) {
+    if (!isQuarterAllowedUI(row.quarter)) continue;
     const key = `${row.quarter}\0${row.filename}`;
     if (onDiskKeys.has(key)) continue;
     const { category, label } = getCategoryAndLabel(row.filename);
@@ -306,7 +332,7 @@ export async function listDownloadedFilesForSymbol(symbol) {
       category,
       label,
       announcement_date: undefined,
-      url: null,
+      url: `/files/${normalized}/${row.quarter}/${row.filename}`,
       drive_web_link: row.drive_web_link || undefined,
       drive_file_id: row.drive_file_id || undefined,
       localMissing: true,

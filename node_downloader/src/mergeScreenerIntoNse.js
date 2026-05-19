@@ -101,6 +101,7 @@ const WINDOW_TO_QUARTERS = {
   "6m": 2,
   "1y": 4,
   "2y": 8,
+  "3y": 12,
   "3q": 3,
 };
 
@@ -156,9 +157,58 @@ function parseExplicitQuarterFromLabel(link) {
   return null;
 }
 
+function parseQuarterEndedFromLabel(link) {
+  const text = [link?.label, link?.link_text].filter(Boolean).join(" ").toLowerCase();
+  if (!text) return null;
+  if (text.includes("ended") || text.includes("ending") || text.includes("quarterly results")) {
+    const m = text.match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})/i) || 
+              text.match(/(\d{4})-(03|06|09|12)/i);
+    if (m) {
+      let month = 0;
+      let year = 0;
+      if (m[2] && (m[2] === "03" || m[2] === "06" || m[2] === "09" || m[2] === "12")) {
+        year = Number(m[1]);
+        month = Number(m[2]);
+      } else {
+        const monthStr = m[1].toLowerCase();
+        year = Number(m[2]);
+        const monthMap = {
+          jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+          jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
+        };
+        month = monthMap[monthStr] || 0;
+      }
+      
+      if (month && year) {
+        let q = 0;
+        let fyYear = year;
+        if (month >= 2 && month <= 4) {
+          q = 4;
+          fyYear = year;
+        } else if (month >= 5 && month <= 7) {
+          q = 1;
+          fyYear = year + 1;
+        } else if (month >= 8 && month <= 10) {
+          q = 2;
+          fyYear = year + 1;
+        } else if (month >= 11 || month <= 1) {
+          q = 3;
+          fyYear = month === 12 ? year + 1 : year;
+        }
+        if (q && fyYear) {
+          return `FY${String(fyYear).slice(-2)}-Q${q}`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function mapLinkToQuarter(link) {
   const explicit = parseExplicitQuarterFromLabel(link);
   if (explicit) return explicit;
+  const ended = parseQuarterEndedFromLabel(link);
+  if (ended) return ended;
   const d = parseLabelDate(link);
   if (!d) return null;
   // Label date is event date (call/announcement). Use shared rule: Jan→Q3, Apr→Q4, Jul→Q1, Oct→Q2.
@@ -286,6 +336,34 @@ async function downloadViaRawTls(url, referer, savePath) {
   return savePath;
 }
 
+function parseDateFromLabel(label) {
+  const clean = String(label || "").replace(/\s+/g, " ");
+  // Match DDth Month YYYY (e.g. 14th May 2026 or 14 May 2026)
+  const ddMonthYyyy = clean.match(/(\d{1,2})(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})/i);
+  if (ddMonthYyyy) {
+    const day = ddMonthYyyy[1].padStart(2, "0");
+    const months = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
+    const month = months[ddMonthYyyy[2].toLowerCase().slice(0, 3)];
+    const year = ddMonthYyyy[3];
+    return `${year}-${month}-${day}`;
+  }
+  
+  // Match Month YYYY (e.g. May 2026)
+  const monthYyyy = clean.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})/i);
+  if (monthYyyy) {
+    const months = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
+    const month = months[monthYyyy[1].toLowerCase().slice(0, 3)];
+    const year = monthYyyy[2];
+    return `${year}-${month}-15`; // Use 15th of the month as a standard middle day
+  }
+
+  // Fallback: search for YYYY-MM-DD in text
+  const yyyyMmDd = clean.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (yyyyMmDd) return yyyyMmDd[0];
+
+  return null;
+}
+
 async function downloadFile(link, folderPath, category) {
   if (isNonPdfMediaUrl(link.href)) {
     console.warn(
@@ -295,9 +373,15 @@ async function downloadFile(link, folderPath, category) {
   }
   ensureDirSync(folderPath);
   const quarter = link.fiscal_quarter;
-  // Include symbol (share), quarter, and category in filename for easier identification on disk
-  const baseName = `${link.symbol}_${quarter}_${category}_${dayjs().format("YYYY-MM-DD")}_screener.pdf`;
+  
+  const datePart = parseDateFromLabel(link.label) || "screener";
+  const baseName = `${link.symbol}_${quarter}_${category}_${datePart}_screener.pdf`;
   const savePath = path.join(folderPath, baseName);
+
+  if (fs.existsSync(savePath)) {
+    console.log(`[Merge] File already exists, skipping download: ${savePath}`);
+    return savePath;
+  }
 
   const isBse = link.href.includes("bseindia.com");
   const client = buildHttpClient(isBse ? link.company_url : undefined);
@@ -577,11 +661,54 @@ export async function runMerge({ window = "3q", dataDir } = {}) {
   const links = readJsonSync(SCREENER_LINKS_PATH, []);
   const bySymbolQuarter = groupLinksBySymbolQuarter(links);
 
+  const isQuarterInLookbackWindow = (quarter, win) => {
+    const match = quarter.match(/^FY(\d{2})-Q[1-4]$/i);
+    if (!match) return false;
+    const fyYear = Number(match[1]);
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
+    const currentFy = currentMonth >= 4 ? (currentYear + 1) : currentYear;
+    const currentFyShort = currentFy % 100;
+    
+    let minFy = currentFyShort - 2; // Default to 2y
+    if (win === "3y") minFy = currentFyShort - 3;
+    else if (win === "2y") minFy = currentFyShort - 2;
+    else if (win === "1y" || win === "6m") minFy = currentFyShort - 1;
+    else if (win === "3q") minFy = currentFyShort - 2;
+    
+    return fyYear >= minFy;
+  };
+
+  // Cleanup step: delete any local directories that are older than our minFy
+  if (fs.existsSync(root)) {
+    for (const symbolName of fs.readdirSync(root)) {
+      const symbolDir = path.join(root, symbolName);
+      if (!fs.statSync(symbolDir).isDirectory()) continue;
+      for (const q of fs.readdirSync(symbolDir)) {
+        const qDir = path.join(symbolDir, q);
+        if (!fs.statSync(qDir).isDirectory()) continue;
+        if (!q.startsWith("FY")) continue;
+        if (!isQuarterInLookbackWindow(q, window)) {
+          console.log(`[Merge Cleanup] Removing out-of-window historical folder: ${symbolName}/${q}`);
+          try {
+            fs.rmSync(qDir, { recursive: true, force: true });
+          } catch (e) {
+            console.error(`[Merge Cleanup] Failed to remove ${qDir}: ${e.message}`);
+          }
+        }
+      }
+    }
+  }
+
   // Limit how many quarters we touch per symbol based on the window flag.
   const maxQuarters = WINDOW_TO_QUARTERS[window] ?? WINDOW_TO_QUARTERS["3q"];
   const allowedBySymbol = new Map();
   for (const key of bySymbolQuarter.keys()) {
     const [symbol, quarter] = key.split("|");
+    if (!isQuarterInLookbackWindow(quarter, window)) {
+      continue;
+    }
     if (!allowedBySymbol.has(symbol)) {
       allowedBySymbol.set(symbol, []);
     }

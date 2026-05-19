@@ -22,7 +22,7 @@ import { eventDateToResultsQuarter } from "./quarterFromEventDate.js";
 import { quarterDirHasCategory } from "./quarterDirCategories.js";
 
 // Same categories and logic as Python nse_filing_downloader (earnings + presentation only; concall from Screener)
-const ALLOWED_CATEGORIES = new Set(["earnings_result", "investor_presentation"]);
+const ALLOWED_CATEGORIES = new Set(["earnings_result", "investor_presentation", "order_win_or_ca_filing"]);
 
 // NSE API uses attchmntText (Python spelling); support both
 function getAttachmentText(ann) {
@@ -75,6 +75,11 @@ function isRelevant(ann) {
     "results presentation",
     "presentation",
     "xbrl",
+    // Premium Corporate Announcements (Patent Wins, capex, plants, etc.)
+    "order", "contract", "work order", "order win", "loa", "letter of award",
+    "tender", "project", "agreement", "strategic", "patent", "commissioning",
+    "expansion", "capacity expansion", "capex", "investment", "plant",
+    "commercial production", "secures", "secured", "received order", "award", "received"
   ];
   if (!positiveKeywords.some((kw) => combined.includes(kw))) {
     return false;
@@ -132,7 +137,7 @@ function isNewspaperOrPublicationAd(text) {
   ].some((x) => t.includes(x));
 }
 
-function classifyFiling(ann) {
+export function classifyFiling(ann) {
   const desc = (ann.desc ?? "").toLowerCase();
   const text = `${desc} ${getAttachmentText(ann).toLowerCase()}`;
 
@@ -147,6 +152,22 @@ function classifyFiling(ann) {
   ) {
     return "concall_transcript"; // filtered out by ALLOWED_CATEGORIES
   }
+
+  // Classify patent, plant, order wins, capacity expansions & capex first to prevent false classification under general categories
+  if (
+    [
+      "patent", "order win", "work order", "loa", "letter of award",
+      "capacity expansion", "capex", "commissioning", "commercial production",
+      "new plant", "plant execution", "project award", "secures order"
+    ].some((k) => text.includes(k)) ||
+    (
+      ["order", "contract", "tender", "project", "agreement", "strategic", "expansion", "investment", "plant", "secures", "secured", "received", "award"].some((k) => text.includes(k)) &&
+      !["schedule of meet", "investor meet", "analyst meet", "newspaper", "advertisement"].some((k) => text.includes(k))
+    )
+  ) {
+    return "order_win_or_ca_filing";
+  }
+
   if (text.includes("investor presentation") || text.includes("presentation")) {
     return "investor_presentation";
   }
@@ -164,6 +185,26 @@ function classifyFiling(ann) {
     return "earnings_result";
   }
   return null;
+}
+
+function calendarDateToQuarter(dateInput) {
+  if (dateInput == null) return "UNKNOWN";
+  const d = dayjs(dateInput);
+  if (!d.isValid()) return "UNKNOWN";
+  const year = d.year();
+  const month = d.month() + 1; // 1-12
+  let q;
+  let fyYear;
+  if (month >= 4 && month <= 6) {
+    q = 1; fyYear = year + 1;
+  } else if (month >= 7 && month <= 9) {
+    q = 2; fyYear = year + 1;
+  } else if (month >= 10 && month <= 12) {
+    q = 3; fyYear = year + 1;
+  } else {
+    q = 4; fyYear = year;
+  }
+  return `FY${String(fyYear).slice(-2)}-Q${q}`;
 }
 
 function inferQuarterForAnnouncement(ann) {
@@ -205,7 +246,11 @@ function inferQuarterForAnnouncement(ann) {
     }
   }
 
-  // Fallback: use shared event-date → results-quarter rule (Jan→Q3, Apr→Q4, Jul→Q1, Oct→Q2).
+  // Fallback: use calendar date for order wins, event-date fallback for earnings/presentations
+  const category = classifyFiling(ann);
+  if (category === "order_win_or_ca_filing") {
+    return calendarDateToQuarter(ann.sort_date || "");
+  }
   return eventDateToResultsQuarter(ann.sort_date || "");
 }
 
@@ -392,18 +437,27 @@ async function processSymbol(session, symbol, fromStr, toStr, downloadLog, dataD
     const sortDate = ann.sort_date || "";
     const quarter = inferQuarterForAnnouncement(ann);
     const key = `${quarter}|${category}`;
-    if (seenQuarterCategory.has(key)) {
-      skippedDupQuarter += 1;
-      continue;
+    
+    // Deduplication constraint only applies to earnings results and investor presentations
+    const isSinglePerQuarter = ["earnings_result", "investor_presentation"].includes(category);
+
+    if (isSinglePerQuarter) {
+      if (seenQuarterCategory.has(key)) {
+        skippedDupQuarter += 1;
+        continue;
+      }
     }
 
     const quarterFolder = path.join(baseDir, symbol, quarter);
-    if (quarterDirHasCategory(quarterFolder, category)) {
+    if (isSinglePerQuarter && quarterDirHasCategory(quarterFolder, category)) {
       skippedAlreadyOnDisk += 1;
       seenQuarterCategory.add(key);
       continue;
     }
-    seenQuarterCategory.add(key);
+    
+    if (isSinglePerQuarter) {
+      seenQuarterCategory.add(key);
+    }
 
     const datePart = sortDate ? sortDate.slice(0, 10) : "unknown";
     // Include symbol (share), quarter, and category in filename for easier identification on disk

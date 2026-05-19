@@ -47,24 +47,33 @@ function extractLinks(symbol, companyUrl, html) {
 
     const parent = $(el).closest("tr,div,li");
     const parentText = parent.length ? parent.text().trim() : "";
-    const isTranscript =
-      lower.includes("transcript") || lower.includes("concall") ||
-      (parentText && (parentText.toLowerCase().includes("transcript") || parentText.toLowerCase().includes("concall")));
-    const isPpt = lower.includes("ppt") || lower.includes("presentation");
-    // Earnings = quarterly results PDF from NSE/BSE/Announcements. NOT "REC" (REC = concall recording in Concalls section).
-    const isResult =
-      (lower.includes("result") || lower.includes("financial") || lower.includes("quarterly")) &&
-      !lower.includes("earnings call"); // avoid concall/transcript links
+    const parentLower = parentText.toLowerCase();
+
+    // Strict individual link text checks first, then parent-context fallbacks
+    const isPpt = lower === "ppt" || lower.includes("presentation") || 
+                  (parentLower.includes("presentation") || parentLower.includes("ppt")) && !lower.includes("transcript");
+    const isTranscript = lower === "transcript" || lower.includes("concall") ||
+                         (parentLower.includes("transcript") || parentLower.includes("concall")) && !lower.includes("ppt");
+    const isResult = (lower.includes("result") || lower.includes("financial") || lower.includes("quarterly")) &&
+                     !lower.includes("earnings call") && !lower.includes("transcript") && !lower.includes("ppt");
 
     if (!(isTranscript || isPpt || isResult)) return;
 
     let label = parentText || text;
 
-    // REC and Transcript row: same row has "Transcript" so both get concall. Earnings come from NSE/BSE/announcements section only.
     let section = "other";
-    if (isTranscript) section = "concall";
-    else if (isPpt) section = "presentation";
-    else if (isResult) section = "earnings";
+    if (lower === "ppt" || lower.includes("presentation")) {
+      section = "presentation";
+    } else if (lower === "transcript") {
+      section = "concall";
+    } else if (lower === "rec" || lower.includes("audio") || lower.includes("recording") || lower.includes("youtube") || lower.includes("youtu.be")) {
+      section = "other"; // Audio recordings go to other / ignored
+    } else {
+      // Fallback
+      if (isTranscript) section = "concall";
+      else if (isPpt) section = "presentation";
+      else if (isResult) section = "earnings";
+    }
 
     const absoluteHref = href.startsWith("http")
       ? href
@@ -126,9 +135,28 @@ export async function runScreenerScraper(symbols = WATCHLIST, screenerSlugByTick
   }
 
   ensureDirSync(path.dirname(OUTPUT_PATH));
-  writeJsonSync(OUTPUT_PATH, allLinks);
+
+  // Merge logic to prevent overwriting other symbols' links
+  let finalLinks = allLinks;
+  if (fs.existsSync(OUTPUT_PATH)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(OUTPUT_PATH, "utf8"));
+      if (Array.isArray(existing)) {
+        const scrapedSymbols = new Set(list.map((s) => String(s).toUpperCase()));
+        const preserved = existing.filter(
+          (link) => link && link.symbol && !scrapedSymbols.has(String(link.symbol).toUpperCase())
+        );
+        finalLinks = [...preserved, ...allLinks];
+        console.log(`[Screener Scraper] Preserved ${preserved.length} existing link(s) for other symbols.`);
+      }
+    } catch (e) {
+      console.warn(`[Screener Scraper] Failed to read/merge existing ${OUTPUT_PATH}: ${e.message}`);
+    }
+  }
+
+  writeJsonSync(OUTPUT_PATH, finalLinks);
   console.log(
-    `Screener scrape complete (Node). Total links: ${allLinks.length}. Saved to ${OUTPUT_PATH}`,
+    `Screener scrape complete (Node). Total links: ${finalLinks.length} (New: ${allLinks.length}). Saved to ${OUTPUT_PATH}`,
   );
 }
 

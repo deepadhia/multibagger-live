@@ -3,13 +3,15 @@ import { Button } from "@/components/ui/button";
 import { useManagementPromises, useQuarterlySnapshots, useStockTrackingProfile, useShareholding, useFinancialMetrics, useXbrlMetrics, useStockTranscripts } from "@/hooks/useStocks";
 import { decisionRulesFromProfile, getMetricKeysForPrompt } from "@/lib/trackingProfileConfig";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Check, Braces, History, Download, Settings2 } from "lucide-react";
+import { Copy, Check, Braces, History, Download, Settings2, FolderArchive } from "lucide-react";
 import { computeTrendDirection, computeMarginTrend, computeOwnershipTrend, generateAnomalyFlags, formatTrendSeries } from "@/lib/trendAnalysis";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "./ui/badge";
+import { apiFetch } from "@/lib/apiFetch";
+
 
 interface Props {
   stock: {
@@ -1119,6 +1121,177 @@ export function CopyGeminiPrompt({ stock }: Props) {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
+  const downloadAllPromptsZip = async () => {
+    const targetQuarters = quarterOptions.filter(q => {
+      const isFY25_or_FY26 = q.startsWith("FY25") || q.startsWith("FY26");
+      const hasData = (
+        snapshots?.some((s: any) => s.quarter === q) ||
+        xbrlMetrics?.some((x: any) => x.quarter === q) ||
+        transcripts?.some((t: any) => t.quarter === q)
+      );
+      return isFY25_or_FY26 && hasData;
+    });
+
+    if (targetQuarters.length === 0) {
+      toast({
+        title: "No data available",
+        description: "No historical quarters found for FY25 or FY26 with data.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    toast({
+      title: "Generating ZIP Archive...",
+      description: `Compiling V12 prompts for ${targetQuarters.length} quarters sequentially.`
+    });
+
+    try {
+      const files = targetQuarters.map(q => {
+        const { prompt } = buildGeminiContext(
+          stock, promises, snapshots, (trackingConfig as Record<string, unknown> | null) ?? null,
+          q, // limit to this quarter chronologically
+          shareholding, valuation, xbrlMetrics, options
+        );
+        return {
+          name: `prompt_${stock.ticker}_${q}.txt`,
+          content: prompt
+        };
+      });
+
+      const blob = createZipBlob(files);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${stock.ticker}_FY25_FY26_prompts_archive.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Download Started!",
+        description: `Successfully zipped ${targetQuarters.length} prompt files for extraction.`
+      });
+    } catch (err: any) {
+      toast({
+        title: "ZIP Generation Failed",
+        description: err.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const downloadAllFilingsZip = async () => {
+    toast({
+      title: "Loading Filings...",
+      description: "Fetching list of downloaded corporate filings from server."
+    });
+
+    try {
+      const res = await apiFetch(`/api/transcripts/files/${encodeURIComponent(stock.ticker)}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!json.ok || !Array.isArray(json.files)) {
+        throw new Error(json.error || "Could not load stock filings list");
+      }
+
+      // Exclude files matching user exclusions
+      const isExcluded = (f: any) => {
+        const combined = `${f.filename} ${f.description || ""} ${f.label || ""}`.toLowerCase();
+        return [
+          "newspaper",
+          "advertisement",
+          "regulation 47",
+          "statutory",
+          "intimation of analyst",
+          "schedule of meet",
+          "investor meet schedule",
+          "investor meeting notice",
+          "notice of meeting",
+          "meeting notice",
+          "newspaper clip"
+        ].some(keyword => combined.includes(keyword));
+      };
+
+      const targetQuarters = new Set(
+        quarterOptions.filter(q => q.startsWith("FY25") || q.startsWith("FY26"))
+      );
+
+      const keptFiles = json.files.filter((f: any) => {
+        const quarterMatch = targetQuarters.has(f.quarter);
+        const isXbrl = f.category === "raw_xbrl" || 
+                       f.filename.toLowerCase().endsWith(".xml") || 
+                       f.filename.toLowerCase().endsWith(".zip") ||
+                       f.filename.toLowerCase().includes("xbrl");
+        return quarterMatch && !isXbrl && !isExcluded(f);
+      });
+
+      if (keptFiles.length === 0) {
+        toast({
+          title: "No filings found",
+          description: "No eligible PDF filings found for FY25 or FY26.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      toast({
+        title: "Downloading Filings...",
+        description: `Downloading ${keptFiles.length} official documents (concalls, results, presentations, order wins) sequentially.`
+      });
+
+      const zipFiles: { name: string; content: Uint8Array }[] = [];
+
+      for (let i = 0; i < keptFiles.length; i++) {
+        const f = keptFiles[i];
+        try {
+          const fileRes = await apiFetch(f.url);
+          if (!fileRes.ok) {
+            console.warn(`Failed to download ${f.url}`);
+            continue;
+          }
+          const buffer = await fileRes.arrayBuffer();
+          // Keep quarter order clear inside Zip folders!
+          zipFiles.push({
+            name: `${f.quarter}/${f.filename}`,
+            content: new Uint8Array(buffer)
+          });
+        } catch (fetchErr: any) {
+          console.error(`Error downloading ${f.filename}:`, fetchErr);
+        }
+      }
+
+      if (zipFiles.length === 0) {
+        throw new Error("Failed to download any of the filings from the server.");
+      }
+
+      toast({
+        title: "Compiling ZIP...",
+        description: `Packing ${zipFiles.length} PDF files into quarter-structured directories.`
+      });
+
+      const blob = createZipBlob(zipFiles);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${stock.ticker}_FY25_FY26_official_filings.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Download Started!",
+        description: `Zipped and downloaded ${zipFiles.length} premium files for ${stock.ticker}.`
+      });
+    } catch (err: any) {
+      toast({
+        title: "Filings Download Failed",
+        description: err.message,
+        variant: "destructive"
+      });
+    }
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -1190,6 +1363,14 @@ export function CopyGeminiPrompt({ stock }: Props) {
           {copiedKind === "json" ? <Check className="h-3 w-3 text-terminal-green" /> : <Braces className="h-3 w-3" />}
           <span className="ml-1">{copiedKind === "json" ? "Copied!" : "Copy JSON"}</span>
         </Button>
+        <Button variant="outline" size="sm" onClick={downloadAllPromptsZip} className="font-mono text-xs border-border hover:bg-muted/50" title="Download all FY25/FY26 prompts as a ZIP archive">
+          <Download className="h-3 w-3 mr-1 text-primary" />
+          <span>ZIP Prompts (FY25-26)</span>
+        </Button>
+        <Button variant="outline" size="sm" onClick={downloadAllFilingsZip} className="font-mono text-xs border-border hover:bg-muted/50 animate-shimmer" title="Download all FY25/FY26 corporate filings (PDFs) grouped by quarter as a ZIP archive">
+          <FolderArchive className="h-3 w-3 mr-1 text-primary" />
+          <span>ZIP Filings (FY25-26)</span>
+        </Button>
         <Button variant="ghost" size="sm" onClick={downloadArchive} className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" title="Download Archive">
           <Download className="h-3.5 w-3.5" />
         </Button>
@@ -1197,4 +1378,108 @@ export function CopyGeminiPrompt({ stock }: Props) {
     </div>
   );
 }
+
+// ==========================================
+// PURE JAVASCRIPT UNCOMPRESSED ZIP GENERATOR
+// ==========================================
+function crc32(bytes: Uint8Array): number {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) {
+      c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table[i] = c;
+  }
+  let crc = 0 ^ -1;
+  for (let i = 0; i < bytes.length; i++) {
+    crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xff];
+  }
+  return (crc ^ -1) >>> 0;
+}
+
+function createZipBlob(files: { name: string; content: string | Uint8Array }[]): Blob {
+  const parts: Uint8Array[] = [];
+  const centralDirParts: Uint8Array[] = [];
+  let offset = 0;
+
+  const encoder = new TextEncoder();
+
+  for (const file of files) {
+    const filenameBytes = encoder.encode(file.name);
+    const contentBytes = typeof file.content === "string" 
+      ? encoder.encode(file.content) 
+      : file.content;
+      
+    const crc = crc32(contentBytes);
+
+    // Local file header (30 bytes + filename + content)
+    const localHeader = new Uint8Array(30 + filenameBytes.length);
+    const view = new DataView(localHeader.buffer);
+
+    view.setUint32(0, 0x04034b50, true); // PK\x03\x04
+    view.setUint16(4, 10, true); // version needed to extract (10)
+    view.setUint16(6, 0, true); // general purpose bit flag (0)
+    view.setUint16(8, 0, true); // compression method (0 = store)
+    view.setUint16(10, 0x3e00, true); // last mod file time
+    view.setUint16(12, 0x589b, true); // last mod file date
+    view.setUint32(14, crc, true); // crc-32
+    view.setUint32(18, contentBytes.length, true); // compressed size
+    view.setUint32(22, contentBytes.length, true); // uncompressed size
+    view.setUint16(26, filenameBytes.length, true); // file name length
+    view.setUint16(28, 0, true); // extra field length
+
+    localHeader.set(filenameBytes, 30);
+
+    parts.push(localHeader);
+    parts.push(contentBytes);
+
+    // Central directory file header (46 bytes + filename)
+    const centralHeader = new Uint8Array(46 + filenameBytes.length);
+    const cView = new DataView(centralHeader.buffer);
+
+    cView.setUint32(0, 0x02014b50, true); // PK\x01\x02
+    cView.setUint16(4, 20, true); // version made by
+    cView.setUint16(6, 10, true); // version needed to extract
+    cView.setUint16(8, 0, true); // general purpose bit flag
+    cView.setUint16(10, 0, true); // compression method (0 = store)
+    cView.setUint16(12, 0x3e00, true); // last mod file time
+    cView.setUint16(14, 0x589b, true); // last mod file date
+    cView.setUint32(16, crc, true); // crc-32
+    cView.setUint32(20, contentBytes.length, true); // compressed size
+    cView.setUint32(24, contentBytes.length, true); // uncompressed size
+    cView.setUint16(28, filenameBytes.length, true); // file name length
+    cView.setUint16(30, 0, true); // extra field length
+    cView.setUint16(32, 0, true); // file comment length
+    cView.setUint16(34, 0, true); // disk number start
+    cView.setUint16(36, 0, true); // internal file attributes
+    cView.setUint32(38, 0, true); // external file attributes
+    cView.setUint32(42, offset, true); // local header offset
+
+    centralHeader.set(filenameBytes, 46);
+    centralDirParts.push(centralHeader);
+
+    offset += localHeader.length + contentBytes.length;
+  }
+
+  // End of central directory record (22 bytes)
+  const eocd = new Uint8Array(22);
+  const eView = new DataView(eocd.buffer);
+
+  const centralDirLength = centralDirParts.reduce((acc, p) => acc + p.length, 0);
+
+  eView.setUint32(0, 0x06054b50, true); // PK\x05\x06
+  eView.setUint16(4, 0, true); // number of this disk
+  eView.setUint16(6, 0, true); // disk where central directory starts
+  eView.setUint16(8, files.length, true); // number of central directory records on this disk
+  eView.setUint16(10, files.length, true); // total number of central directory records
+  eView.setUint32(12, centralDirLength, true); // size of central directory
+  eView.setUint32(16, offset, true); // offset of start of central directory
+  eView.setUint16(20, 0, true); // comment length
+
+  const finalParts = [...parts, ...centralDirParts, eocd];
+  return new Blob(finalParts, { type: "application/zip" });
+}
+
+
 

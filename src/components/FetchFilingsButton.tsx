@@ -21,7 +21,7 @@ const WINDOW_OPTIONS = [
 
 export function FetchFilingsButton() {
   const [fetching, setFetching] = useState(false);
-  const [window, setWindow] = useState<"3q" | "6m" | "1y" | "3y">("1y");
+  const [window, setWindow] = useState<"3q" | "6m" | "1y" | "3y">("3y");
   const queryClient = useQueryClient();
   const { toast } = useToast();
 

@@ -37,7 +37,7 @@ import { apiFetch, apiUrl } from "@/lib/apiFetch";
 import {
   RefreshCw, Loader2, TrendingUp, TrendingDown,
   ArrowUpRight, ArrowDownRight, Target, AlertTriangle, Zap, Quote,
-  BarChart3, Activity, Shield, FileText, Users, Briefcase, ExternalLink, Trash2, Newspaper, PieChart
+  BarChart3, Activity, Shield, FileText, Users, Briefcase, ExternalLink, Trash2, Newspaper, PieChart, Download
 } from "lucide-react";
 import { QuarterlyMetricsTab } from "@/components/QuarterlyMetricsTab";
 import { DecisionAlpha } from "@/components/DecisionAlpha";
@@ -114,6 +114,8 @@ export default function StockDetailPage() {
   const [resettingInsights, setResettingInsights] = useState(false);
   const [resettingFiles, setResettingFiles] = useState(false);
   const [superSyncing, setSuperSyncing] = useState(false);
+  const [downloadingZip, setDownloadingZip] = useState(false);
+  const [syncingMissing, setSyncingMissing] = useState(false);
 
   const { data: filingsData, isLoading: filingsLoading, refetch: refetchFilings } = useQuery({
     queryKey: ["transcripts-files", stock?.ticker],
@@ -395,6 +397,72 @@ export default function StockDetailPage() {
       });
     } finally {
       setSuperSyncing(false);
+    }
+  };
+
+  const handleDownloadZip = async () => {
+    if (!stock?.ticker) return;
+    if (downloadingZip) return;
+    setDownloadingZip(true);
+    try {
+      const downloadUrl = apiUrl(`/api/transcripts/download-zip/${encodeURIComponent(stock.ticker)}`);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.setAttribute("download", `${stock.ticker}_FY25_FY26_Filings.zip`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Download Initiated",
+        description: `Downloading zipped filings for ${stock.ticker}...`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Download Failed",
+        description: err.message || "Could not download zip file",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
+
+  const handleSyncMissing = async () => {
+    if (!stock?.ticker) return;
+    if (syncingMissing) return;
+    setSyncingMissing(true);
+    try {
+      const res = await apiFetch("/api/transcripts/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbols: [stock.ticker],
+          onlyMissing: true,
+          uploadAfterDownload: true,
+          window: "3y",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data?.error || "Sync failed");
+
+      toast({
+        title: "Sync Complete",
+        description: `Successfully checked and synced all pending quarters (FY25/FY26/coming quarters) for ${stock.ticker}.`,
+      });
+
+      // Refetch files
+      refetchFilings();
+      queryClient.invalidateQueries({ queryKey: ["transcripts-files", stock.ticker] });
+      queryClient.invalidateQueries({ queryKey: ["transcripts-drive-status"] });
+    } catch (err: any) {
+      toast({
+        title: "Sync Failed",
+        description: err.message || "Could not sync missing filings",
+        variant: "destructive",
+      });
+    } finally {
+      setSyncingMissing(false);
     }
   };
 
@@ -1424,6 +1492,26 @@ export default function StockDetailPage() {
                       {filingsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
                       <span className="ml-1">Refresh</span>
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadZip}
+                      disabled={downloadingZip}
+                      className="font-mono text-xs border-terminal-green/30 text-terminal-green hover:bg-terminal-green/10 shrink-0 h-9"
+                    >
+                      {downloadingZip ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Download className="h-3 w-3 mr-1" />}
+                      Download ZIP (FY25/FY26)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSyncMissing}
+                      disabled={syncingMissing}
+                      className="font-mono text-xs border-primary/30 text-primary hover:bg-primary/10 shrink-0 h-9"
+                    >
+                      {syncingMissing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                      Sync Pending Quarters
+                    </Button>
                   </div>
                 </div>
 
@@ -1433,7 +1521,7 @@ export default function StockDetailPage() {
                   </div>
                 ) : filings.length === 0 ? (
                   <div className="py-12 text-center text-muted-foreground font-mono text-sm">
-                    No announcements yet. <strong>Fetch filings (3yr)</strong> to download historical PDFs and XBRLs.
+                    No filings found. Click <strong>Sync Pending Quarters</strong> above to check for and sync all missing documents.
                   </div>
                 ) : (
                   <>

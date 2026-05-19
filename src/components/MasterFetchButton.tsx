@@ -17,11 +17,12 @@ const WINDOW_OPTIONS = [
   { value: "3q", label: "3q" },
   { value: "6m", label: "6m" },
   { value: "1y", label: "1y" },
+  { value: "3y", label: "3y" },
 ] as const;
 
 export function MasterFetchButton() {
   const [fetching, setFetching] = useState(false);
-  const [window, setWindow] = useState<"3q" | "6m" | "1y">("1y");
+  const [window, setWindow] = useState<"3q" | "6m" | "1y" | "3y">("3y");
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -126,7 +127,7 @@ export function MasterFetchButton() {
 
   return (
     <div className="flex items-center gap-2">
-      <Select value={window} onValueChange={(v) => setWindow(v as "3q" | "6m" | "1y")}>
+      <Select value={window} onValueChange={(v) => setWindow(v as "3q" | "6m" | "1y" | "3y")}>
         <SelectTrigger className="w-[70px] h-8 font-mono text-xs border-border">
           <SelectValue />
         </SelectTrigger>
