@@ -34,7 +34,6 @@ if (!DATABASE_URL) {
 }
 
 if (!JWT_SECRET) {
-  console.error("JWT_SECRET is not set. Add it to .env.local (e.g. openssl rand -hex 32) for admin login.");
-  process.exit(1);
+  console.warn("[WARN] JWT_SECRET is not set. Admin authentication features will be disabled.");
 }
 
