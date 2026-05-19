@@ -211,7 +211,7 @@ export function AddStockDialog() {
               symbols: [t],
               onlyMissing: true,
               uploadAfterDownload: true,
-              window: "1y",
+              window: "3y",
             }),
           });
           queryClient.invalidateQueries({ queryKey: ["transcripts-files"] });

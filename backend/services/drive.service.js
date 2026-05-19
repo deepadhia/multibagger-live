@@ -209,7 +209,7 @@ function getDriveClientSync() {
   return google.drive({ version: "v3", auth });
 }
 
-async function getDriveClient() {
+export async function getDriveClient() {
   if (isOAuthConfigured()) {
     return getDriveClientFromOAuth();
   }

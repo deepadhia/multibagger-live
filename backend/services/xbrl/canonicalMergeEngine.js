@@ -81,16 +81,41 @@ export function mergeXbrlData(apiData, parsedData, history = []) {
     });
   }
 
+  // Helper: Calculate mathematically exact quarter age difference (positive = hist is older than current)
+  const getQuarterAgeDiff = (q1, q2) => {
+    if (!q1 || !q2) return 999;
+    const m1 = q1.match(/FY(\d+)-Q(\d)/);
+    const m2 = q2.match(/FY(\d+)-Q(\d)/);
+    if (!m1 || !m2) return 999;
+    const fy1 = parseInt(m1[1], 10);
+    const qtr1 = parseInt(m1[2], 10);
+    const fy2 = parseInt(m2[1], 10);
+    const qtr2 = parseInt(m2[2], 10);
+    
+    const totalQ1 = fy1 * 4 + qtr1;
+    const totalQ2 = fy2 * 4 + qtr2;
+    return totalQ2 - totalQ1;
+  };
+
   // Helper: Get metric from history
   const getFromHistory = (field) => {
-    for (let i = 0; i < Math.min(history.length, 4); i++) {
+    const currentQ = apiData.quarter;
+    for (let i = 0; i < history.length; i++) {
       if (history[i][field] != null) {
-        return {
-          value: history[i][field],
-          quarter: history[i].quarter,
-          age: i + 1,
-          metadata: history[i].metric_metadata?.[field] || {}
-        };
+        const meta = history[i].metric_metadata?.[field] || {};
+        // Block fallback cascades: never use a previously "fallback" value as a source!
+        if (meta.source === 'fallback') continue;
+
+        const ageDiff = getQuarterAgeDiff(history[i].quarter, currentQ);
+        // Only allow fallback from older quarters (ageDiff > 0) within max quarters limit
+        if (ageDiff > 0 && ageDiff <= MAX_FALLBACK_QUARTERS) {
+          return {
+            value: history[i][field],
+            quarter: history[i].quarter,
+            age: ageDiff,
+            metadata: meta
+          };
+        }
       }
     }
     return null;

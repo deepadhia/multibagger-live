@@ -273,52 +273,54 @@ export async function fetchAndStoreXbrlMetrics({ stock_id, ticker, bse_scrip_cod
         // Segments are now merged and scaled inside mergeXbrlData
 
         // DRIVE & ANNOUNCEMENT INTEGRATION
-        try {
-          const filename = path.basename(xmlPath);
-          const driveResult = await uploadSingleFiling({
-            symbol: ticker,
-            quarter: qLabel,
-            localPath: xmlPath,
-            filename
-          });
-          if (driveResult) {
-            row.gdrive_id = driveResult.id;
-            row.gdrive_url = driveResult.webViewLink;
+        if (qLabel === qDir) {
+          try {
+            const filename = path.basename(xmlPath);
+            const driveResult = await uploadSingleFiling({
+              symbol: ticker,
+              quarter: qLabel,
+              localPath: xmlPath,
+              filename
+            });
+            if (driveResult) {
+              row.gdrive_id = driveResult.id;
+              row.gdrive_url = driveResult.webViewLink;
 
-            // Also insert into filing_drive_links so it shows up in Section 2 (Official Filings)
-            await pool.query(
-              `INSERT INTO filing_drive_links (symbol, quarter, filename, drive_file_id, drive_web_link)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (symbol, quarter, filename) DO UPDATE
-                 SET drive_file_id = EXCLUDED.drive_file_id, drive_web_link = EXCLUDED.drive_web_link, uploaded_at = now()`,
-              [ticker, qLabel, filename, row.gdrive_id, row.gdrive_url]
-            );
+              // Also insert into filing_drive_links so it shows up in Section 2 (Official Filings)
+              await pool.query(
+                `INSERT INTO filing_drive_links (symbol, quarter, filename, drive_file_id, drive_web_link)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (symbol, quarter, filename) DO UPDATE
+                   SET drive_file_id = EXCLUDED.drive_file_id, drive_web_link = EXCLUDED.drive_web_link, uploaded_at = now()`,
+                [ticker, qLabel, filename, row.gdrive_id, row.gdrive_url]
+              );
+            }
+
+            // Also save to corporate_announcements so it shows up in the new tab
+            const title = `XBRL Financial Results - ${qLabel}`;
+            const sourceId = `XBRL_${ticker}_${qLabel}`;
+            const titleHash = generateAnnouncementHash(ticker, title, row.period_end_date);
+
+            await saveAnnouncement({
+              stock_id,
+              ticker,
+              source_id: sourceId,
+              title_hash: titleHash,
+              title,
+              raw_text: `Deep XBRL extraction for ${ticker} ${qLabel}`,
+              priority: "HIGH",
+              impact: "NEUTRAL",
+              confidence: "HIGH",
+              summary: `Integrated Filing (XBRL) enriched with BS/CF metrics.`,
+              status: "processed",
+              sent_to_telegram: false, // Don't spam telegram for every V3 sync
+              is_earnings_release: true,
+              attachment_url: row.gdrive_url || null,
+              filing_date: row.period_end_date
+            });
+          } catch (driveErr) {
+            console.warn(`[V3 Drive/Ann] Failed for ${ticker} ${qLabel}:`, driveErr.message);
           }
-
-          // Also save to corporate_announcements so it shows up in the new tab
-          const title = `XBRL Financial Results - ${qLabel}`;
-          const sourceId = `XBRL_${ticker}_${qLabel}`;
-          const titleHash = generateAnnouncementHash(ticker, title, row.period_end_date);
-
-          await saveAnnouncement({
-            stock_id,
-            ticker,
-            source_id: sourceId,
-            title_hash: titleHash,
-            title,
-            raw_text: `Deep XBRL extraction for ${ticker} ${qLabel}`,
-            priority: "HIGH",
-            impact: "NEUTRAL",
-            confidence: "HIGH",
-            summary: `Integrated Filing (XBRL) enriched with BS/CF metrics.`,
-            status: "processed",
-            sent_to_telegram: false, // Don't spam telegram for every V3 sync
-            is_earnings_release: true,
-            attachment_url: row.gdrive_url || null,
-            filing_date: row.period_end_date
-          });
-        } catch (driveErr) {
-          console.warn(`[V3 Drive/Ann] Failed for ${ticker} ${qLabel}:`, driveErr.message);
         }
       }
     }

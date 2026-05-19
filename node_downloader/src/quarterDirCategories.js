@@ -11,6 +11,7 @@ export const FILING_CATEGORIES = [
   "investor_presentation",
   "concall_transcript",
   "raw_xbrl",
+  "order_win_or_ca_filing",
 ];
 
 /**

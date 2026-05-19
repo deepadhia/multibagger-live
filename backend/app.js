@@ -1,7 +1,11 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import fs from "node:fs";
+import path from "node:path";
 import { getDataDir } from "./config/dataDir.js";
+import { isDriveConfigured, getDriveClient } from "./services/drive.service.js";
+import { pool } from "./db/pool.js";
 import { healthRouter } from "./routes/health.routes.js";
 import { stocksRouter } from "./routes/stocks.routes.js";
 import { transcriptsRouter } from "./routes/transcripts.routes.js";
@@ -61,7 +65,44 @@ app.use(requireAuth);
 
 app.get("/api/auth/drive/start", driveStartHandler);
 
-// Static files for downloaded PDFs
+// Static files for downloaded PDFs, with a dynamic fallback to Google Drive if missing locally
+app.get("/files/:symbol/:quarter/:filename", async (req, res, next) => {
+  const { symbol, quarter, filename } = req.params;
+  const filePath = path.join(getDataDir(), symbol, quarter, filename);
+
+  if (fs.existsSync(filePath)) {
+    return res.sendFile(filePath);
+  }
+
+  // If missing locally, try to stream from Google Drive
+  try {
+    const normalizedSymbol = String(symbol).toUpperCase();
+    const linksRes = await pool.query(
+      "SELECT drive_file_id FROM filing_drive_links WHERE symbol = $1 AND quarter = $2 AND filename = $3",
+      [normalizedSymbol, quarter, filename]
+    );
+    const driveFileId = linksRes.rows[0]?.drive_file_id;
+
+    if (driveFileId && isDriveConfigured()) {
+      const drive = await getDriveClient();
+      console.log(`[files API] Streaming ${symbol}/${quarter}/${filename} from Google Drive ID: ${driveFileId}`);
+      const driveRes = await drive.files.get(
+        { fileId: driveFileId, alt: "media" },
+        { responseType: "stream" }
+      );
+      res.setHeader("Content-Type", filename.toLowerCase().endsWith(".xml") ? "text/xml" : "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+      driveRes.data.pipe(res);
+      return;
+    }
+  } catch (err) {
+    console.error(`[files API] Error fetching ${symbol}/${quarter}/${filename} from Google Drive:`, err.message);
+  }
+
+  // Fall back to express.static (which will send 404)
+  next();
+});
+
 app.use("/files", express.static(getDataDir()));
 
 app.use(proxyRouter);

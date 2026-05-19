@@ -26,3 +26,17 @@ export const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+// Run database maintenance to clean up any mismatched/duplicated filing links
+pool.query(`
+  DELETE FROM filing_drive_links
+  WHERE filename LIKE '%_raw_xbrl_%'
+    AND split_part(filename, '_', 2) != quarter
+`).then((res) => {
+  if (res.rowCount > 0) {
+    console.log(`[DB MAINTENANCE] Cleaned up ${res.rowCount} mismatched XBRL filing links.`);
+  }
+}).catch((err) => {
+  console.error("[DB MAINTENANCE] Failed to clean up mismatched filing links:", err.message);
+});
+
+
