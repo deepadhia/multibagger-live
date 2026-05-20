@@ -144,7 +144,7 @@ export async function downloadTranscriptsPipeline({
 
   await runScreenerScraper(toDownload, screenerSlugByTicker);
 
-  await runMerge({ window, dataDir });
+  await runMerge({ window, dataDir, symbols: toDownload });
 
   // Trigger XBRL extraction for all processed stocks
   for (const symbol of tickers) {

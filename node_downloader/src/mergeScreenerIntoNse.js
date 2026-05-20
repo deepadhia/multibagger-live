@@ -649,7 +649,7 @@ async function backfillQuarterForSymbol(symbol, quarter, links, allowedQuartersF
   writeJsonSync(metaPath, meta);
 }
 
-export async function runMerge({ window = "3q", dataDir } = {}) {
+export async function runMerge({ window = "3q", dataDir, symbols } = {}) {
   const root = dataDir || DATA_DIR;
 
   if (!fs.existsSync(SCREENER_LINKS_PATH)) {
@@ -657,6 +657,10 @@ export async function runMerge({ window = "3q", dataDir } = {}) {
       `Missing ${SCREENER_LINKS_PATH}. Run Screener scraper first.`,
     );
   }
+
+  const symbolFilterSet = Array.isArray(symbols)
+    ? new Set(symbols.map((s) => String(s).toUpperCase()))
+    : null;
 
   const links = readJsonSync(SCREENER_LINKS_PATH, []);
   const bySymbolQuarter = groupLinksBySymbolQuarter(links);
@@ -683,6 +687,9 @@ export async function runMerge({ window = "3q", dataDir } = {}) {
   // Cleanup step: delete any local directories that are older than our minFy
   if (fs.existsSync(root)) {
     for (const symbolName of fs.readdirSync(root)) {
+      if (symbolFilterSet && !symbolFilterSet.has(symbolName.toUpperCase())) {
+        continue;
+      }
       const symbolDir = path.join(root, symbolName);
       if (!fs.statSync(symbolDir).isDirectory()) continue;
       for (const q of fs.readdirSync(symbolDir)) {
@@ -706,6 +713,9 @@ export async function runMerge({ window = "3q", dataDir } = {}) {
   const allowedBySymbol = new Map();
   for (const key of bySymbolQuarter.keys()) {
     const [symbol, quarter] = key.split("|");
+    if (symbolFilterSet && !symbolFilterSet.has(symbol.toUpperCase())) {
+      continue;
+    }
     if (!isQuarterInLookbackWindow(quarter, window)) {
       continue;
     }
@@ -725,6 +735,9 @@ export async function runMerge({ window = "3q", dataDir } = {}) {
   const existingBySymbol = new Map();
   if (fs.existsSync(root)) {
     for (const symbolName of fs.readdirSync(root)) {
+      if (symbolFilterSet && !symbolFilterSet.has(symbolName.toUpperCase())) {
+        continue;
+      }
       const symbolDir = path.join(root, symbolName);
       if (!fs.statSync(symbolDir).isDirectory()) continue;
       const quarters = new Set();
@@ -752,6 +765,9 @@ export async function runMerge({ window = "3q", dataDir } = {}) {
 
   for (const [key, linksForKey] of bySymbolQuarter.entries()) {
     const [symbol, quarter] = key.split("|");
+    if (symbolFilterSet && !symbolFilterSet.has(symbol.toUpperCase())) {
+      continue;
+    }
     const allowedSet = allowedBySymbol.get(symbol);
     if (allowedSet && !allowedSet.has(quarter)) {
       continue;
