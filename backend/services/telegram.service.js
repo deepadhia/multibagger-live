@@ -113,7 +113,7 @@ export async function sendTelegramMessage(text) {
 export async function sendAnnouncementAlert({
   ticker, title, priority, impact, summary, confidence,
   key_data, deep_dive_indicator, result_date,
-  is_earnings_release, category, exchangeTimestamp, docUrl, source = "BSE"
+  is_earnings_release, concall_type, category, exchangeTimestamp, docUrl, source = "BSE"
 }) {
   const priorityEmoji  = priority === "HIGH" ? "🔴" : priority === "MEDIUM" ? "🟡" : "⚪";
   const impactEmoji    = impact === "POSITIVE" ? "📈" : impact === "NEGATIVE" ? "📉" : "⚖️";
@@ -134,6 +134,20 @@ export async function sendAnnouncementAlert({
   // ── Earnings Release Banner ───────────────────────────────────────────────
   if (is_earnings_release) {
     message += `💰 *FINANCIAL RESULTS DECLARED* 💰\n`;
+    message += `─────────────────────────\n`;
+  }
+
+  // ── Concall / Transcript Banner ───────────────────────────────────────────
+  if (concall_type) {
+    if (concall_type === "transcript") {
+      message += `📄 *CONCALL TRANSCRIPT OUT* 📄\n`;
+    } else if (concall_type === "audio") {
+      message += `🎧 *CONCALL AUDIO RECORDING OUT* 🎧\n`;
+    } else if (concall_type === "scheduled") {
+      message += `📅 *CONCALL SCHEDULED / INTIMATION* 📅\n`;
+    } else {
+      message += `🎤 *CONCALL COMPLETED* 🎤\n`;
+    }
     message += `─────────────────────────\n`;
   }
 

@@ -87,7 +87,7 @@ The React app and Express API are gated behind a single admin account (JWT in an
 
 ### 3.1 Connect Your Own Supabase Project (Cloud)
 
-If you want to use your **own** hosted Supabase project instead of the default Lovable one:
+If you want to use your own hosted Supabase project:
 
 1. Create a new project in the Supabase dashboard.
 2. Link this repo to that project:
@@ -195,8 +195,8 @@ The app will be available at `http://localhost:5173`.
 ## Key Features
 
 - **Dual-Exchange Announcement Scanner**: Integrated real-time ingestion from **BSE** and **NSE** with automated "Merge Model" deduplication.
-- **Thesis-Aware AI Classification**: Uses Llama 3.1 (via NVIDIA NIM) to classify news not just by topic, but by how it impacts your specific **Investment Thesis**.
-- **Full Document Intelligence**: Automatic extraction and analysis of PDF attachments, allowing the AI to understand the core details of generic filings (e.g. "News Verification" or "General Updates").
+- **Thesis-Aware AI Classification**: Uses the highly powerful **Llama 3.1 70B** model (via NVIDIA NIM) to classify news not just by topic, but by how it impacts your specific **Investment Thesis**, generating a mandatory **qualitative overall verdict** (overall good/strong, flat, or bad/weak) at the absolute start of every summary.
+- **Full Document Intelligence**: Automatic full-scale extraction and analysis of PDF attachments (up to **60,000 characters**), ensuring complete quarterly financial tables, segmental metrics, and auditor reviews are fully parsed and fed to the AI context.
 - **Sentiment-First Telegram Alerts**: High-signal, structured notifications that prioritize **IMPACT (POSITIVE/NEGATIVE)** and include portfolio category context, key figures, and direct document links.
 - **Automatic Result Date Sync**: Detects upcoming financial result dates in filings and automatically updates the portfolio countdown.
 - **Announcements**: On each stock’s detail page, an **Announcements** tab lists downloaded filings (earnings, concall transcripts, investor presentations) by quarter and type with **View** links. Use **Download filings** to fetch from NSE & Screener.
@@ -271,6 +271,6 @@ npm run build           # Production build
 
 ## Deployment
 
-The app is deployed via [Lovable](https://lovable.dev). Click **Publish** in the editor to deploy.
-
-Edge functions deploy automatically on code changes. Frontend requires clicking **Update** in the publish dialog.
+- **Frontend**: Deployed via Vercel (see `vercel.json` configuration).
+- **Backend & Edge Functions**: Deployed to Supabase Cloud.
+- **Worker & Scanner**: Deployed as automated GitHub Actions workflows (see `.github/workflows/`).
