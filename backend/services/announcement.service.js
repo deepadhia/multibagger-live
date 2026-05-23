@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { pool } from "../db/pool.js";
+import { PDFParse } from "pdf-parse";
 
 const HIGH_KEYWORDS = [
   "order", "contract", "work order", "order win", "loa", "letter of award",
@@ -76,6 +77,88 @@ export function shouldProcessAnnouncement(title) {
   // We process everything for the live feed, but we can use keywords to set defaults
   return true; 
 }
+
+/**
+ * Classifies an announcement title into concall categories: "transcript", "audio", "scheduled", or "done".
+ * Returns null if the announcement is not concall-related.
+ */
+export function getConcallType(title) {
+  const t = String(title || "").toLowerCase();
+  
+  // 1. Check for Transcript (most specific)
+  if (t.includes("transcript")) {
+    return "transcript";
+  }
+  
+  // 2. Check for Audio Recording / Audio Link (indicates concall is completed)
+  if (
+    t.includes("audio recording") ||
+    t.includes("audio link") ||
+    t.includes("link of audio") ||
+    t.includes("recording of")
+  ) {
+    return "audio";
+  }
+  
+  // 3. Exclude private fund / institutional investor meetings (no public share impact)
+  const isPrivateFundMeet =
+    t.includes("meeting with") ||
+    t.includes("interaction with") ||
+    t.includes("one on one") ||
+    t.includes("one-on-one") ||
+    t.includes("group meeting") ||
+    t.includes("group meet") ||
+    t.includes("investor meeting") ||
+    t.includes("fund meeting") ||
+    t.includes("one on one meet");
+
+  if (isPrivateFundMeet) {
+    const hasPublicConcallKeywords = 
+      t.includes("conference call") || 
+      t.includes("concall") || 
+      t.includes("con call") || 
+      t.includes("earnings call");
+      
+    if (!hasPublicConcallKeywords) {
+      return null; // Skip private investor / fund meets
+    }
+  }
+  
+  // 4. Check for other concall or analyst meeting keywords
+  const isConcallRelated = 
+    t.includes("concall") ||
+    t.includes("con call") ||
+    t.includes("conference call") ||
+    t.includes("analyst call") ||
+    t.includes("investor call") ||
+    t.includes("earnings call") ||
+    t.includes("analyst meet") ||
+    t.includes("investor meet") ||
+    t.includes("analyst / institutional investor meeting");
+
+  if (isConcallRelated) {
+    // If it contains completed / outcome / concluded, it is done
+    if (t.includes("outcome") || t.includes("completed") || t.includes("concluded")) {
+      return "done";
+    }
+    // If it contains scheduling keywords, it is upcoming
+    if (t.includes("schedule") || t.includes("intimation")) {
+      return "scheduled";
+    }
+    // Default to completed / done
+    return "done";
+  }
+  
+  return null;
+}
+
+/**
+ * Detects if an announcement title is related to a concall, transcript, or audio recording.
+ */
+export function isConcallOrTranscript(title) {
+  return !!getConcallType(title);
+}
+
 
 /**
  * Resets announcements stuck in 'pending' for too long.
@@ -300,9 +383,6 @@ export async function markHeartbeatSent() {
   );
 }
 
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const pdf = require("pdf-parse");
 
 /**
  * Downloads a PDF from a URL and extracts its text content.
@@ -333,14 +413,16 @@ export async function extractTextFromPdfUrl(url) {
     }
 
     console.log(`[PDF] Parsing...`);
-    const buffer = await response.arrayBuffer();
-    const data = await pdf(Buffer.from(buffer));
+    const arrayBuffer = await response.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+    const parser = new PDFParse(uint8);
+    const data = await parser.getText();
     
     // Clean up text: remove extra whitespace and truncate
     const cleanText = data.text
       .replace(/\s+/g, ' ')
       .trim()
-      .substring(0, 10000);
+      .substring(0, 60000);
 
     console.log(`[PDF] Extracted ${cleanText.length} characters.`);
     return cleanText;

@@ -9,7 +9,9 @@ import {
   resetStuckPending,
   isHeartbeatNeeded,
   markHeartbeatSent,
-  extractTextFromPdfUrl
+  extractTextFromPdfUrl,
+  isConcallOrTranscript,
+  getConcallType
 } from "../services/announcement.service.js";
 import { classifyAnnouncementWithNim } from "../services/nim.service.js";
 import { sendAnnouncementAlert, sendRunSummary, sendTelegramMessage, buildBseDocumentUrl } from "../services/telegram.service.js";
@@ -180,10 +182,15 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
         } else if (docUrl) {
           console.log(`[PDF] Extracting text from: ${docUrl}`);
           const extractedText = await extractTextFromPdfUrl(docUrl);
-          if (extractedText) {
+          if (extractedText && extractedText.trim().length > 50) {
             announcementText = `TITLE: ${title}\n\nCONTENT:\n${extractedText}`;
             console.log(`[PDF] Successfully extracted ${extractedText.length} chars.`);
+          } else {
+            announcementText = `TITLE: ${title}\n\nCONTENT:\n[NO TEXT EXTRACTED: The PDF filing is either a scanned image, routine template, or unreadable.]`;
+            console.log(`[PDF] Extraction failed or returned empty text. Passing error guard to AI.`);
           }
+        } else {
+          announcementText = `TITLE: ${title}\n\nCONTENT:\n[NO FILING TEXT AVAILABLE: Pure title intimation only.]`;
         }
 
         // 6. NVIDIA NIM AI Classify (Stage 2) with Retry
@@ -195,9 +202,10 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           continue;
         }
 
-        // 7. Alert if High Priority or Earnings Release
+        // 7. Alert if High Priority or Earnings Release or Concall/Transcript
         let sentToTelegram = false;
-        if (aiResult.is_earnings_release || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
+        const concallType = getConcallType(title);
+        if (concallType || aiResult.is_earnings_release || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
           if (alertsSent >= MAX_ALERTS_PER_RUN) {
             console.warn(`[LIMIT] Max alerts reached for this run. Skipping telegram for ${ticker}`);
           } else if (isDryRun) {
@@ -215,6 +223,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
                 deep_dive_indicator: aiResult.deep_dive_indicator,
                 result_date: aiResult.result_date,
                 is_earnings_release: aiResult.is_earnings_release,
+                concall_type: concallType,
                 category: stock.category,
                 exchangeTimestamp: timestamp,
                 docUrl,
@@ -280,7 +289,8 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
 }
 
 // Check if run directly
-if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
+import { fileURLToPath } from 'url';
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   scan().then(() => {
     console.log("Process finished.");
     process.exit(0);
