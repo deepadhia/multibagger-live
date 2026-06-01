@@ -163,11 +163,38 @@ export function getConcallType(title, rawText = "") {
     combined.includes("conference call") ||
     combined.includes("earnings call");
 
-  if (!hasConcallKeywords) {
+  // 3b. Also catch "investor/analyst call on <date>" style intimations.
+  // BSE often files these as "Intimation of Investor/Analyst Call on 29th May"
+  // which has no "concall" keyword but is clearly a scheduled earnings call.
+  const hasDateSignal =
+    /\d+(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(combined) ||
+    /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(combined) ||
+    combined.includes("scheduled on") ||
+    combined.includes("to be held");
+
+  const hasEarningsSignal =
+    combined.includes("earnings") ||
+    combined.includes("results") ||
+    combined.includes("financial results") ||
+    /q[1-4]/.test(combined) ||
+    /fy\d{2}/.test(combined);
+
+  const hasCallOnDate =
+    combined.includes("call") &&
+    (
+      // Path A: investor/analyst call with a date → clearly a public earnings call
+      ((combined.includes("investor") || combined.includes("analyst")) && (hasDateSignal || combined.includes("intimation of call"))) ||
+      // Path B: bare "intimation of call" with an earnings keyword → e.g. "Intimation of call for Q4 FY25"
+      (combined.includes("intimation of call") && hasEarningsSignal)
+    );
+
+  if (!hasConcallKeywords && !hasCallOnDate) {
     return null; // Not concall related at all
   }
 
-  // 4. Exclude private fund meets, roadshows, or generic broker-led investor conferences
+  // 4. Exclude private fund meets, roadshows, or generic broker-led investor conferences.
+  // NOTE: We only apply this exclusion for the broad hasConcallKeywords path.
+  // hasCallOnDate with a specific date is specific enough to keep.
   const isGenericMeet =
     combined.includes("investor meet") ||
     combined.includes("analyst meet") ||
@@ -186,16 +213,10 @@ export function getConcallType(title, rawText = "") {
     combined.includes("participating in") ||
     combined.includes("organized by");
 
-  const hasEarningsKeywords =
-    combined.includes("earnings") ||
-    combined.includes("results") ||
-    combined.includes("financial results") ||
-    /q[1-4]/.test(combined) ||
-    /fy\d{2}/.test(combined);
-
-  if (isGenericMeet && !hasEarningsKeywords) {
-    return null; // Ignore broker/private group meets
+  if (hasConcallKeywords && isGenericMeet && !hasEarningsSignal) {
+    return null; // Ignore broker/private group meets (only for broad keyword path)
   }
+
 
   // 5. Determine scheduled vs completed
   const isCompleted =
@@ -239,34 +260,62 @@ export async function resetStuckPending(timeoutMs = 15 * 60 * 1000) {
  * Fetches recent announcements from BSE API for a specific scrip code.
  * @param {string} scripCode 
  */
+/**
+ * BSE categories that carry high-impact filings.
+ * Fetched in parallel so we never miss an award, MOU, acquisition, result,
+ * or concall just because it was filed under a different category.
+ */
+const BSE_CATEGORIES = [
+  "Company Update",       // General announcements, orders, MOUs, awards
+  "Result",               // Financial results
+  "AGM/EGM",             // Board meetings, AGMs
+  "Corp. Action",         // Dividends, splits, buybacks
+  "Insider Trading / SAST", // Bulk deals, promoter activity
+];
+
 export async function fetchBseAnnouncements(scripCode) {
   if (!scripCode) return [];
 
-  const url = `https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w`;
-  const params = new URLSearchParams({
-    strCat: "Company Update",
-    strScrip: scripCode
-  });
+  const baseUrl = `https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w`;
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Origin": "https://www.bseindia.com",
+    "Referer": "https://www.bseindia.com/",
+    "Connection": "keep-alive"
+  };
 
-  const response = await fetch(`${url}?${params.toString()}`, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Origin": "https://www.bseindia.com",
-      "Referer": "https://www.bseindia.com/",
-      "Connection": "keep-alive"
-    },
-  });
+  // Fetch all relevant BSE categories in parallel and merge results.
+  // Deduplicate by NEWS_ID so the same filing appearing in multiple categories isn't doubled.
+  const results = await Promise.allSettled(
+    BSE_CATEGORIES.map(async (cat) => {
+      const params = new URLSearchParams({ strCat: cat, strScrip: scripCode });
+      const res = await fetch(`${baseUrl}?${params.toString()}`, { headers });
+      if (!res.ok) {
+        console.warn(`[BSE] Category '${cat}' fetch failed for ${scripCode}: ${res.status}`);
+        return [];
+      }
+      const data = await res.json();
+      return data.Table || [];
+    })
+  );
 
-  if (!response.ok) {
-    console.error(`BSE API failed for ${scripCode}:`, response.status);
-    return [];
+  const seen = new Set();
+  const merged = [];
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      for (const ann of result.value) {
+        const key = String(ann.NEWS_ID || ann.NEWSSUB || "");
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          merged.push(ann);
+        }
+      }
+    }
   }
 
-  const data = await response.json();
-  // BSE API usually returns { Table: [...] }
-  return data.Table || [];
+  return merged;
 }
 
 /**
@@ -363,19 +412,24 @@ export function generateAnnouncementHash(ticker, title, timestamp) {
 
 /**
  * Checks if an announcement has already been processed in the DB.
+ * 'pending' rows are explicitly excluded — they were capped mid-run and must be re-evaluated.
  */
 export async function isAnnouncementProcessed(ticker, sourceId, titleHash) {
   const result = await pool.query(
     `SELECT id FROM corporate_announcements 
      WHERE ticker = $1 
-     AND (source_id = $2 OR title_hash = $3)`,
+     AND (source_id = $2 OR title_hash = $3)
+     AND status != 'pending'`,
     [ticker, sourceId, titleHash]
   );
   return result.rows.length > 0;
 }
 
+
 /**
  * Saves a processed announcement to the database.
+ * If the row already exists as 'pending' (capped from a previous run),
+ * it is promoted to 'sent' or 'ignored' so it isn't evaluated again.
  */
 export async function saveAnnouncement({
   stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, attachment_url, filing_date
@@ -384,10 +438,33 @@ export async function saveAnnouncement({
     `INSERT INTO corporate_announcements 
       (stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, processed_at, attachment_url, filing_date)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15)
-     ON CONFLICT (ticker, source_id) DO NOTHING`,
+     ON CONFLICT (ticker, source_id) DO UPDATE
+       SET status = CASE
+             -- Only promote if currently pending (i.e. was capped previously)
+             WHEN corporate_announcements.status = 'pending' THEN EXCLUDED.status
+             ELSE corporate_announcements.status
+           END,
+           sent_to_telegram = CASE
+             WHEN corporate_announcements.status = 'pending' THEN EXCLUDED.sent_to_telegram
+             ELSE corporate_announcements.sent_to_telegram
+           END,
+           processed_at = CASE
+             WHEN corporate_announcements.status = 'pending' THEN NOW()
+             ELSE corporate_announcements.processed_at
+           END
+    `,
     [stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, attachment_url, filing_date]
-  );
+  ).catch(err => {
+    // Silently handle title_hash unique constraint violations (cross-exchange dedup race).
+    // These are not real errors — the announcement was already processed from the other exchange.
+    if (err.code === '23505') {
+      console.log(`[DB] Duplicate title_hash skipped for ${ticker}: ${title.substring(0, 60)}`);
+      return;
+    }
+    throw err;
+  });
 }
+
 
 /**
  * Validates date format YYYY-MM-DD.

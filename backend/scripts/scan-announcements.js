@@ -147,13 +147,15 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
         const isGenericTitle = GENERIC_TITLES.includes(title);
 
         if (!isGenericTitle) {
+          // Use first 3 words for the fuzzy prefix (single-word is too broad for common words like "Award")
+          const prefixWords = title.split(' ').slice(0, 3).join(' ');
           const fuzzyResult = await pool.query(
             `SELECT id FROM corporate_announcements 
              WHERE ticker = $1 
              AND (title ILIKE $2 OR $3 ILIKE '%' || title || '%')
              AND status = 'sent' 
              AND processed_at > NOW() - interval '24 hours'`,
-            [ticker, `%${title.split(' ')[0]}%`, title]
+            [ticker, `%${prefixWords}%`, title]
           );
           if (fuzzyResult.rows.length > 0) {
             console.log(`[SKIP] Fuzzy duplicate detected for ${ticker}: ${title}`);
@@ -207,7 +209,8 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
         const concallType = getConcallType(title, announcementText);
         if (concallType || aiResult.is_earnings_release || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
           if (alertsSent >= MAX_ALERTS_PER_RUN) {
-            console.warn(`[LIMIT] Max alerts reached for this run. Skipping telegram for ${ticker}`);
+            // Save as 'pending' so the next scheduled run re-evaluates it — never permanently drop.
+            console.warn(`[LIMIT] Max alerts reached. Saving ${ticker} announcement as 'pending' for next run.`);
           } else if (isDryRun) {
             console.log(`[DRY RUN] Would send alert for ${ticker}: ${title}`);
           } else {
@@ -241,6 +244,15 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
         }
 
         // 8. Save to DB
+        // status logic:
+        //   'sent'    → alert fired to Telegram
+        //   'pending' → alert was capped (MAX_ALERTS_PER_RUN hit); re-evaluated next run
+        //   'ignored' → AI classified as LOW/MEDIUM neutral; genuinely not noteworthy
+        const shouldHaveAlerted = concallType || aiResult.is_earnings_release || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL");
+        const dbStatus = sentToTelegram
+          ? "sent"
+          : (shouldHaveAlerted && alertsSent >= MAX_ALERTS_PER_RUN ? "pending" : "ignored");
+
         await saveAnnouncement({
           stock_id: stock.id,
           ticker,
@@ -252,7 +264,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           impact: aiResult.impact,
           confidence: aiResult.confidence,
           summary: aiResult.summary,
-          status: sentToTelegram ? "sent" : "ignored",
+          status: dbStatus,
           sent_to_telegram: sentToTelegram,
           is_earnings_release: aiResult.is_earnings_release || false,
           attachment_url: docUrl,
