@@ -182,9 +182,14 @@ export function getConcallType(title, rawText = "") {
   const hasCallOnDate =
     combined.includes("call") &&
     (
-      // Path A: investor/analyst call with a date → clearly a public earnings call
-      ((combined.includes("investor") || combined.includes("analyst")) && (hasDateSignal || combined.includes("intimation of call"))) ||
-      // Path B: bare "intimation of call" with an earnings keyword → e.g. "Intimation of call for Q4 FY25"
+      // Path A: investor/analyst call + specific date + earnings context
+      // Requires BOTH a date AND an earnings signal to avoid triggering on private fund meets.
+      // e.g. "Investor/Analyst Call on 29th May for Q4 FY25 Results" → YES
+      // e.g. "Investor/Analyst Call on 29th May" (no results mention) → NO
+      ((combined.includes("investor") || combined.includes("analyst")) &&
+       hasDateSignal && hasEarningsSignal) ||
+      // Path B: bare "intimation of call" with an earnings keyword
+      // e.g. "Intimation of call for Q4 FY25" → YES
       (combined.includes("intimation of call") && hasEarningsSignal)
     );
 
@@ -192,10 +197,9 @@ export function getConcallType(title, rawText = "") {
     return null; // Not concall related at all
   }
 
-  // 4. Exclude private fund meets, roadshows, or generic broker-led investor conferences.
-  // NOTE: We only apply this exclusion for the broad hasConcallKeywords path.
-  // hasCallOnDate with a specific date is specific enough to keep.
-  const isGenericMeet =
+  // 4. Exclude private fund meets, roadshows, and one-on-one meetings.
+  // Applied to BOTH paths — an earnings concall will never have these meeting phrases.
+  const isPrivateMeet =
     combined.includes("investor meet") ||
     combined.includes("analyst meet") ||
     combined.includes("investor meeting") ||
@@ -213,10 +217,12 @@ export function getConcallType(title, rawText = "") {
     combined.includes("participating in") ||
     combined.includes("organized by");
 
-  if (hasConcallKeywords && isGenericMeet && !hasEarningsSignal) {
-    return null; // Ignore broker/private group meets (only for broad keyword path)
+  // Private meet without earnings context → always skip.
+  // Private meet WITH earnings context (e.g. earnings roadshow Q4) → borderline, still skip
+  // because the actual concall will be filed separately.
+  if (isPrivateMeet) {
+    return null;
   }
-
 
   // 5. Determine scheduled vs completed
   const isCompleted =

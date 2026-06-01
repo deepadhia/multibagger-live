@@ -59,9 +59,11 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     3. FACTUAL SUMMARY & VERDICT: Your summary must be 2-3 highly analytical sentences. Sentence 1: Factual operational/financial event (with exact figures: ₹Cr, %, margins if available). Sentence 2: Explicit verdict on whether the results/news are overall good (strong growth/expansion), flat/neutral, or bad (contraction/weakness) relative to expectations/thesis, and the main driver. Sentence 3: Specific business impact and concrete actionable implication for the investor.
 
     ── Priority Rules ──
-    HIGH: Earnings Results / Financial Results, Large orders (>10% of annual revenue), M&A / demergers / restructuring, management/auditor exits, capex >20% net worth, credit downgrades, regulatory actions, Product Approvals, Patents, Licenses, Large contract wins.
-    MEDIUM: Dividends, board meeting notices, credit rating reaffirmations, allotments, medium-sized orders, general business updates.
+    HIGH: Earnings Results / Financial Results, Large orders (>10% of annual revenue), M&A / demergers / restructuring, management/auditor exits, capex >20% net worth, credit downgrades, regulatory actions, Product Approvals, Patents, Licenses, Large contract wins, Awards, MOU signings with strategic partners.
+    MEDIUM: Dividends, board meeting notices, credit rating reaffirmations, allotments, medium-sized orders, general business updates, scheduled earnings conference calls / concalls.
     LOW: Routine compliance filings, share certificate loss, voting results, AGM notices, window closure notices, newspaper publications.
+    LOW (ALWAYS, NO EXCEPTIONS): Private analyst/investor meets, one-on-one meetings with mutual funds or institutional investors, management interaction meetings, analyst roadshows, investor days organized by brokers, fund house meetings. These do NOT move the share price and must ALWAYS be classified LOW NEUTRAL regardless of any other content.
+
 
     ── Output Rules ──
     - "summary": A 2-3 sentence factual summary that starts with an explicit qualitative verdict (overall strong/good, flat, or weak/bad) and provides a high-level overview of the key numbers and business drivers.
