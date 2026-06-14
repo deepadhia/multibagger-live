@@ -178,19 +178,21 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           docUrl = ann.attachment.startsWith('http') ? ann.attachment : `https://nsearchives.nseindia.com/corporate/${ann.attachment}`;
         }
 
-        if (ann.attachment_text) {
+        let extractedText = "";
+        if (docUrl) {
+          console.log(`[PDF] Extracting text from: ${docUrl}`);
+          extractedText = await extractTextFromPdfUrl(docUrl);
+        }
+
+        if (extractedText && extractedText.trim().length > 50) {
+          announcementText = `TITLE: ${title}\n\nCONTENT:\n${extractedText}`;
+          console.log(`[PDF] Successfully extracted ${extractedText.length} chars.`);
+        } else if (ann.attachment_text) {
           console.log(`[TEXT] Using provided attachment text for ${ticker}`);
           announcementText = `TITLE: ${title}\n\nSUMMARY:\n${ann.attachment_text}`;
         } else if (docUrl) {
-          console.log(`[PDF] Extracting text from: ${docUrl}`);
-          const extractedText = await extractTextFromPdfUrl(docUrl);
-          if (extractedText && extractedText.trim().length > 50) {
-            announcementText = `TITLE: ${title}\n\nCONTENT:\n${extractedText}`;
-            console.log(`[PDF] Successfully extracted ${extractedText.length} chars.`);
-          } else {
-            announcementText = `TITLE: ${title}\n\nCONTENT:\n[NO TEXT EXTRACTED: The PDF filing is either a scanned image, routine template, or unreadable.]`;
-            console.log(`[PDF] Extraction failed or returned empty text. Passing error guard to AI.`);
-          }
+          announcementText = `TITLE: ${title}\n\nCONTENT:\n[NO TEXT EXTRACTED: The PDF filing is either a scanned image, routine template, or unreadable.]`;
+          console.log(`[PDF] Extraction failed or returned empty text. Passing error guard to AI.`);
         } else {
           announcementText = `TITLE: ${title}\n\nCONTENT:\n[NO FILING TEXT AVAILABLE: Pure title intimation only.]`;
         }
