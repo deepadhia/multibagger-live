@@ -6,6 +6,8 @@ export const ALLOWED_CATEGORIES = new Set([
   "concall_transcript",
   "earnings_result",
   "investor_presentation",
+  "raw_xbrl",
+  "order_win_or_ca_filing",
 ]);
 
 export function verifyOutput(dataDir) {
@@ -34,16 +36,19 @@ export function verifyOutput(dataDir) {
       if (!quarterName.startsWith("FY")) continue;
 
       for (const file of fs.readdirSync(quarterDir)) {
-        if (!file.toLowerCase().endsWith(".pdf")) continue;
+        const lower = file.toLowerCase();
+        if (!lower.endsWith(".pdf") && !lower.endsWith(".xml") && !lower.endsWith(".zip")) continue;
         total += 1;
-        const name = file;
+        
         let cat = "unknown";
-        if (name.includes("_")) {
-          const parts = name.split("_");
-          cat = parts.length >= 2 ? `${parts[0]}_${parts[1]}` : parts[0];
+        for (const allowed of ALLOWED_CATEGORIES) {
+          if (lower.includes(`_${allowed}_`) || lower.startsWith(`${allowed}_`) || (allowed === "raw_xbrl" && (lower.includes("_raw_xbrl_") || lower.includes("_xbrl_") || lower.includes("xbrl")))) {
+            cat = allowed;
+            break;
+          }
         }
-        if (!ALLOWED_CATEGORIES.has(cat)) {
-          bad.push(`${symbolName}/${quarterName}/${name} -> unknown category`);
+        if (cat === "unknown") {
+          bad.push(`${symbolName}/${quarterName}/${file} -> unknown category`);
         }
 
         const key = `${symbolName}|${quarterName}`;

@@ -9,6 +9,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import axios from "axios";
 import dayjs from "dayjs";
+import { pool } from "../../backend/db/pool.js";
 import {
   DATA_DIR,
   WATCHLIST,
@@ -300,7 +301,21 @@ async function createNseSession() {
 async function downloadFile(session, url, savePath) {
   ensureDirSync(path.dirname(savePath));
   try {
-    const res = await session.get(url, { responseType: "arraybuffer" });
+    let res;
+    if (url.toLowerCase().includes("nseindia.com")) {
+      res = await session.get(url, { responseType: "arraybuffer" });
+    } else {
+      res = await axios.get(url, {
+        responseType: "arraybuffer",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+            "AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/122.0.0.0 Safari/537.36",
+        },
+        timeout: 30000,
+      });
+    }
     if (res.status !== 200) {
       console.warn(`[NSE] Download HTTP ${res.status}: ${url.slice(0, 80)}...`);
       return null;
@@ -369,6 +384,46 @@ async function fetchAnnouncements(session, symbol, fromStr, toStr) {
   return res.data;
 }
 
+async function fetchAnnouncementsFromDb(symbol, fromStr, toStr) {
+  const fromParts = fromStr.split("-");
+  const toParts = toStr.split("-");
+  const fromDate = new Date(`${fromParts[2]}-${fromParts[1]}-${fromParts[0]}T00:00:00Z`);
+  const toDate = new Date(`${toParts[2]}-${toParts[1]}-${toParts[0]}T23:59:59Z`);
+
+  const { rows } = await pool.query(
+    `SELECT title, attachment_url, filing_date, source_id, is_earnings_release 
+     FROM corporate_announcements 
+     WHERE ticker = $1 
+       AND filing_date >= $2 
+       AND filing_date <= $3
+       AND attachment_url IS NOT NULL 
+       AND attachment_url != ''`,
+    [symbol, fromDate, toDate]
+  );
+
+  return rows.map((r) => {
+    const seq_id = r.source_id || crypto.createHash("md5").update(`${symbol}:${r.title}:${r.filing_date}`).digest("hex");
+    let desc = r.title || "";
+    
+    // Ensure it classifications correctly (if it is verified earnings release in DB but lacks keyword)
+    const lowerTitle = desc.toLowerCase();
+    if (r.is_earnings_release && !lowerTitle.includes("presentation") && !lowerTitle.includes("ppt")) {
+      if (!["result", "financial", "quarterly", "board meeting"].some(k => lowerTitle.includes(k))) {
+        desc += " financial results";
+      }
+    }
+
+    return {
+      desc: desc,
+      attchmntText: "",
+      attchmntFile: r.attachment_url,
+      seq_id: seq_id,
+      sort_date: r.filing_date ? new Date(r.filing_date).toISOString() : null,
+      announcementDate: r.filing_date ? new Date(r.filing_date).toISOString() : null,
+    };
+  });
+}
+
 async function processSymbol(session, symbol, fromStr, toStr, downloadLog, dataDir) {
   const baseDir = dataDir || DATA_DIR;
   console.log(
@@ -380,7 +435,7 @@ async function processSymbol(session, symbol, fromStr, toStr, downloadLog, dataD
     anns = await fetchAnnouncements(session, symbol, fromStr, toStr);
     // HBL is a special case: some historical announcements are filed under
     // HBLENGINE on NSE. If we get *no* announcements for HBL in this window,
-    // try once more with HBLENGINE so we don't silently miss results.
+    // try once more with HBLENGINE (alternate NSE symbol)
     if ((!anns || anns.length === 0) && symbol === "HBL") {
       console.warn(
         `[NSE] ${symbol} returned 0 announcements. Retrying this window with HBLENGINE (alternate NSE symbol)`,
@@ -389,8 +444,20 @@ async function processSymbol(session, symbol, fromStr, toStr, downloadLog, dataD
     }
   } catch (err) {
     console.error(
-      `[NSE] Error fetching announcements for ${symbol} (${fromStr}–${toStr}): ${err.message}`,
+      `[NSE] Error fetching announcements for ${symbol} (${fromStr}–${toStr}): ${err.message}. Trying database fallback...`,
     );
+  }
+
+  if (!anns || anns.length === 0) {
+    try {
+      anns = await fetchAnnouncementsFromDb(symbol, fromStr, toStr);
+      console.log(`[NSE FALLBACK] Found ${anns.length} announcements in DB for ${symbol}`);
+    } catch (dbErr) {
+      console.error(`[NSE FALLBACK ERROR] Failed to fetch announcements from DB for ${symbol}:`, dbErr.message);
+    }
+  }
+
+  if (!anns) {
     return 0;
   }
 
