@@ -27,7 +27,7 @@ node_downloader/.env
 **/client_secret*apps.googleusercontent.com.json
 backend/secrets/
 backend/services/*.json
-
+backend/scratch
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

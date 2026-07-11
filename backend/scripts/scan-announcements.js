@@ -203,13 +203,60 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           aiResult = await withRetry(() => classifyAnnouncementWithNim(ticker, announcementText, title, stock.investment_thesis), "AI Classification");
         } catch (err) {
           console.error(`AI Classification permanently failed for ${ticker}:`, err.message);
+          // Save as 'failed' to skip re-download on next runs; will still be retried
+          // because isAnnouncementProcessed excludes 'failed' status.
+          await saveAnnouncement({
+            stock_id: stock.id,
+            ticker,
+            source_id: sourceId,
+            title_hash: hash,
+            title,
+            raw_text: title,
+            priority: "LOW",
+            impact: "NEUTRAL",
+            confidence: "LOW",
+            summary: `AI classification failed: ${err.message}`,
+            status: "failed",
+            sent_to_telegram: false,
+            is_earnings_release: false,
+            attachment_url: docUrl,
+            filing_date: timestamp
+          });
           continue;
         }
 
-        // 7. Alert if High Priority or Earnings Release or Concall/Transcript
+        // 6b. Self-contradiction guard
+        if (aiResult.priority === "LOW" && aiResult.is_earnings_release) {
+          console.warn(`[OVERRIDE] is_earnings_release forced false for LOW priority: ${ticker} - ${title}`);
+          aiResult.is_earnings_release = false;
+        }
+
+        // 6c. Title pattern override (defence-in-depth)
+        const NEVER_EARNINGS_TITLES = [
+          "postal ballot", "agm notice", "agm", "egm",
+          "shareholders meeting", "general meeting",
+          "newspaper publication", "newspaper advertisement",
+          "voting results", "scrutinizer report",
+          "compliance certificate", "loss of share certificate",
+          "board meeting notice", "closure of trading window"
+        ];
+        const titleLower = title.toLowerCase();
+        if (aiResult.is_earnings_release && NEVER_EARNINGS_TITLES.some(p => titleLower.includes(p))) {
+          console.warn(`[OVERRIDE] is_earnings_release forced false by title pattern: ${ticker} - ${title}`);
+          aiResult.is_earnings_release = false;
+        }
+
+        // 6d. Build finalSummary with AGM highlights
+        let finalSummary = aiResult.summary;
+        if (aiResult.is_agm && aiResult.agm_status === "completed" && aiResult.agm_highlights) {
+          finalSummary += `\n\nAGM Highlights:\n${aiResult.agm_highlights}`;
+        }
+        const isAgmCompleted = aiResult.is_agm && aiResult.agm_status === "completed";
+
+        // 7. Alert if High Priority or Earnings Release or Concall/Transcript or Completed AGM
         let sentToTelegram = false;
         const concallType = getConcallType(title, announcementText);
-        if (concallType || aiResult.is_earnings_release || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
+        if (concallType || aiResult.is_earnings_release || isAgmCompleted || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
           if (alertsSent >= MAX_ALERTS_PER_RUN) {
             // Save as 'pending' so the next scheduled run re-evaluates it — never permanently drop.
             console.warn(`[LIMIT] Max alerts reached. Saving ${ticker} announcement as 'pending' for next run.`);
@@ -222,7 +269,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
                 title,
                 priority: aiResult.priority,
                 impact: aiResult.impact,
-                summary: aiResult.summary,
+                summary: finalSummary,
                 confidence: aiResult.confidence,
                 key_data: aiResult.key_data,
                 deep_dive_indicator: aiResult.deep_dive_indicator,
@@ -236,6 +283,9 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
                 exchangeTimestamp: timestamp,
                 docUrl,
                 source: annSource,
+                is_agm: aiResult.is_agm,
+                agm_status: aiResult.agm_status,
+                agm_highlights: aiResult.agm_highlights
               }), "Telegram Alert");
               sentToTelegram = true;
               alertsSent++;
@@ -250,7 +300,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
         //   'sent'    → alert fired to Telegram
         //   'pending' → alert was capped (MAX_ALERTS_PER_RUN hit); re-evaluated next run
         //   'ignored' → AI classified as LOW/MEDIUM neutral; genuinely not noteworthy
-        const shouldHaveAlerted = concallType || aiResult.is_earnings_release || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL");
+        const shouldHaveAlerted = concallType || aiResult.is_earnings_release || isAgmCompleted || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL");
         const dbStatus = sentToTelegram
           ? "sent"
           : (shouldHaveAlerted && alertsSent >= MAX_ALERTS_PER_RUN ? "pending" : "ignored");
@@ -265,7 +315,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           priority: aiResult.priority,
           impact: aiResult.impact,
           confidence: aiResult.confidence,
-          summary: aiResult.summary,
+          summary: finalSummary,
           status: dbStatus,
           sent_to_telegram: sentToTelegram,
           is_earnings_release: aiResult.is_earnings_release || false,

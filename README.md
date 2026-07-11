@@ -150,6 +150,25 @@ To enable the **Thesis-Aware** corporate announcement scanner:
 3.  **Supabase**: The scanner uses `DATABASE_URL` (Direct PG connection) for high-performance ingestion.
 4.  **Investment Thesis**: Ensure the `investment_thesis` column in the `stocks` table is populated for best results.
 
+#### 4.2. Cloudflare Workflow Dispatcher (Scheduler)
+To avoid runner allocation limits and run scans efficiently on market schedules, trigger dispatches via Cloudflare Workers:
+1. Set up a Classic or Fine-grained GitHub Personal Access Token (PAT) with `workflow` (classic) or `Actions: Read and write` (fine-grained) scope.
+2. Deploy the dispatcher from the `cloudflare-dispatcher/` directory:
+   ```sh
+   cd cloudflare-dispatcher
+   npm install
+   npm run deploy
+   ```
+3. Set the GitHub PAT on your Cloudflare Worker:
+   ```sh
+   npx wrangler secret put GITHUB_PAT --name multibagger-workflow-dispatcher
+   ```
+4. The worker consolidates the schedules into a single cron expression (`0,30 3,5,8,10,14,16 * * *`) to comply with the Cloudflare Free tier limit (5 crons max), triggering scans covering both market hours and late evening/night filings:
+   - **03:00 UTC (08:30 AM IST):** Results reminders (`remind-results.yml`)
+   - **03:30, 05:30, 08:00, 10:00 UTC:** Market sweeps (`scan-announcements.yml`, Mon-Sat)
+   - **14:30 UTC (08:00 PM IST) & 16:30 UTC (10:00 PM IST):** Evening/night sweeps (`scan-announcements.yml`, Mon-Sat)
+
+
 ### 5. Serve Edge Functions Locally
 
 In a separate terminal:
@@ -272,5 +291,6 @@ npm run build           # Production build
 ## Deployment
 
 - **Frontend**: Deployed via Vercel (see `vercel.json` configuration).
-- **Backend & Edge Functions**: Deployed to Supabase Cloud.
-- **Worker & Scanner**: Deployed as automated GitHub Actions workflows (see `.github/workflows/`).
+- **Backend & Edge Functions**: Deployed to Supabase Cloud (with backend Express API hosted on Railway/Render).
+- **Scheduler (Cloudflare Worker)**: Deployed to Cloudflare Workers (`multibagger-workflow-dispatcher`) to handle automated scan schedules.
+- **Scanner (GitHub Actions)**: Configured via `.github/workflows/` files, triggered externally by the Cloudflare Worker via GitHub workflow dispatch API.

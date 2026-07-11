@@ -113,7 +113,8 @@ export async function sendTelegramMessage(text) {
 export async function sendAnnouncementAlert({
   ticker, title, priority, impact, summary, confidence,
   key_data, deep_dive_indicator, result_date,
-  is_earnings_release, concall_type, concall_date, concall_time, is_rescheduled, category, exchangeTimestamp, docUrl, source = "BSE"
+  is_earnings_release, concall_type, concall_date, concall_time, is_rescheduled, category, exchangeTimestamp, docUrl, source = "BSE",
+  is_agm, agm_status, agm_highlights
 }) {
   const priorityEmoji  = priority === "HIGH" ? "🔴" : priority === "MEDIUM" ? "🟡" : "⚪";
   const impactEmoji    = impact === "POSITIVE" ? "📈" : impact === "NEGATIVE" ? "📉" : "⚖️";
@@ -134,6 +135,20 @@ export async function sendAnnouncementAlert({
   // ── Earnings Release Banner ───────────────────────────────────────────────
   if (is_earnings_release) {
     message += `💰 *FINANCIAL RESULTS DECLARED* 💰\n`;
+    message += `─────────────────────────\n`;
+  }
+
+  // ── AGM Banner Block ──────────────────────────────────────────────────────
+  if (is_agm) {
+    if (agm_status === "completed") {
+      message += `🏛️ *ANNUAL GENERAL MEETING COMPLETED* 🏛️\n`;
+      if (agm_highlights) {
+        message += `─────────────────────────\n`;
+        message += `📋 *AGM Highlights*\n${agm_highlights}\n`;
+      }
+    } else if (agm_status === "scheduled") {
+      message += `📅 *ANNUAL GENERAL MEETING SCHEDULED* 📅\n`;
+    }
     message += `─────────────────────────\n`;
   }
 

@@ -87,6 +87,24 @@ export function getConcallType(title, rawText = "") {
   const body = String(rawText || "").toLowerCase();
   const combined = `${t} ${body}`;
 
+  // 0. AGM / EGM / Postal Ballot guard — must come first.
+  // These filings are NEVER earnings concalls. If the title/text contains AGM
+  // keywords without an explicit concall keyword, return null immediately.
+  const AGM_PATTERNS = [
+    "agm", "egm", "annual general meeting", "extraordinary general meeting",
+    "shareholders meeting", "general meeting", "postal ballot",
+    "board meeting notice"
+  ];
+  const hasExplicitConcall =
+    combined.includes("concall") ||
+    combined.includes("transcript") ||
+    combined.includes("conference call") ||
+    combined.includes("earnings call");
+  const isAgmOrPostalBallot = AGM_PATTERNS.some(k => combined.includes(k));
+  if (isAgmOrPostalBallot && !hasExplicitConcall) {
+    return null;
+  }
+
   // 1. Check for Transcript (most specific)
   if (t.includes("transcript") || body.includes("transcript")) {
     const isGenericMeet =
@@ -180,7 +198,8 @@ export function getConcallType(title, rawText = "") {
     /fy\d{2}/.test(combined);
 
   const hasCallOnDate =
-    combined.includes("call") &&
+    // Use word-boundary regex to avoid matching "called", "recall", "locally" etc.
+    /\bcall\b/i.test(combined) &&
     (
       // Path A: investor/analyst call + specific date + earnings context
       // Requires BOTH a date AND an earnings signal to avoid triggering on private fund meets.
@@ -190,7 +209,7 @@ export function getConcallType(title, rawText = "") {
        hasDateSignal && hasEarningsSignal) ||
       // Path B: bare "intimation of call" with an earnings keyword
       // e.g. "Intimation of call for Q4 FY25" → YES
-      (combined.includes("intimation of call") && hasEarningsSignal)
+      (/\bintimation of call\b/i.test(combined) && hasEarningsSignal)
     );
 
   if (!hasConcallKeywords && !hasCallOnDate) {
@@ -418,14 +437,14 @@ export function generateAnnouncementHash(ticker, title, timestamp) {
 
 /**
  * Checks if an announcement has already been processed in the DB.
- * 'pending' rows are explicitly excluded — they were capped mid-run and must be re-evaluated.
+ * 'pending' and 'failed' rows are excluded to allow retries.
  */
 export async function isAnnouncementProcessed(ticker, sourceId, titleHash) {
   const result = await pool.query(
     `SELECT id FROM corporate_announcements 
      WHERE ticker = $1 
      AND (source_id = $2 OR title_hash = $3)
-     AND status != 'pending'`,
+     AND status NOT IN ('pending', 'failed')`,
     [ticker, sourceId, titleHash]
   );
   return result.rows.length > 0;
@@ -446,16 +465,16 @@ export async function saveAnnouncement({
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15)
      ON CONFLICT (ticker, source_id) DO UPDATE
        SET status = CASE
-             -- Only promote if currently pending (i.e. was capped previously)
-             WHEN corporate_announcements.status = 'pending' THEN EXCLUDED.status
+             -- Promote if currently pending (capped mid-run) OR failed (NIM outage, now recovered)
+             WHEN corporate_announcements.status IN ('pending', 'failed') THEN EXCLUDED.status
              ELSE corporate_announcements.status
            END,
            sent_to_telegram = CASE
-             WHEN corporate_announcements.status = 'pending' THEN EXCLUDED.sent_to_telegram
+             WHEN corporate_announcements.status IN ('pending', 'failed') THEN EXCLUDED.sent_to_telegram
              ELSE corporate_announcements.sent_to_telegram
            END,
            processed_at = CASE
-             WHEN corporate_announcements.status = 'pending' THEN NOW()
+             WHEN corporate_announcements.status IN ('pending', 'failed') THEN NOW()
              ELSE corporate_announcements.processed_at
            END
     `,

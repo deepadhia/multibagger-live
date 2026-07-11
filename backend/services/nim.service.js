@@ -62,18 +62,20 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     HIGH: Earnings Results / Financial Results, Large orders (>10% of annual revenue), M&A / demergers / restructuring, management/auditor exits, capex >20% net worth, credit downgrades, regulatory actions, Product Approvals, Patents, Licenses, Large contract wins, Awards, MOU signings with strategic partners.
     MEDIUM: Dividends, board meeting notices, credit rating reaffirmations, allotments, medium-sized orders, general business updates, scheduled earnings conference calls / concalls.
     LOW: Routine compliance filings, share certificate loss, voting results, AGM notices, window closure notices, newspaper publications.
-    LOW (ALWAYS, NO EXCEPTIONS): Private analyst/investor meets, one-on-one meetings with mutual funds or institutional investors, management interaction meetings, analyst roadshows, investor days organized by brokers, fund house meetings. These do NOT move the share price and must ALWAYS be classified LOW NEUTRAL regardless of any other content.
-
+    LOW (ALWAYS, NO EXCEPTIONS): Postal ballot notices, AGM/EGM notices, director re-appointment notices, commission to non-executive directors, shareholders meeting notices, newspaper publication intimations, voting results, scrutinizer reports, compliance certificates, board meeting notices that do NOT announce actual financial results. Private analyst/investor meets, one-on-one meetings with mutual funds or institutional investors, management interaction meetings, analyst roadshows, investor days organized by brokers, fund house meetings. These do NOT move the share price and must ALWAYS be classified LOW NEUTRAL regardless of any other content.
 
     ── Output Rules ──
     - "summary": A 2-3 sentence factual summary that starts with an explicit qualitative verdict (overall strong/good, flat, or weak/bad) and provides a high-level overview of the key numbers and business drivers.
     - "key_data": Extract ALL specific numbers — order value (₹Cr), acquisition cost, capex outlay, revenue %, deal tenure, capacity. If none, write "No specific figures disclosed."
     - "deep_dive_indicator": Name the precise investment thesis risk or opportunity with context.
     - "result_date": YYYY-MM-DD if a board meeting for results is announced. Otherwise null.
-    - "is_earnings_release": true only if this is the actual Q-results announcement (not just a board meeting notice).
+    - "is_earnings_release": true ONLY when the filing contains actual quarterly or annual financial numbers (revenue, PAT, EBITDA figures). Postal ballot notices, director re-appointments, AGM/EGM notices, commission approvals, and newspaper publications are ALWAYS is_earnings_release: false, NO EXCEPTIONS — even if the word "results" appears in the text.
     - "concall_date": YYYY-MM-DD if a scheduled or rescheduled earnings conference call is mentioned. Otherwise null.
     - "concall_time": HH:MM IST/format or null if a scheduled or rescheduled earnings conference call time is mentioned (e.g. "16:00 IST"). Otherwise null.
     - "is_rescheduled": true if the earnings conference call is explicitly rescheduled, postponed, or revised from a previous date. Otherwise false.
+    - "is_agm": true if the filing is an AGM/EGM notice, proceedings, outcome, annual report, or postal ballot notice. Otherwise false.
+    - "agm_status": "scheduled" if it is a notice/schedule for a future meeting, or "completed" if it is the proceedings/outcome of a meeting that has already occurred. Otherwise null.
+    - "agm_highlights": A bulleted 2-4 point summary of key resolutions, management takeaways, or Q&A if agm_status is "completed". Otherwise null.
 
     Return ONLY a valid JSON object:
     {
@@ -87,65 +89,100 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
       "is_earnings_release": true | false,
       "concall_date": "YYYY-MM-DD or null",
       "concall_time": "HH:MM or format or null",
-      "is_rescheduled": true | false
+      "is_rescheduled": true | false,
+      "is_agm": true | false,
+      "agm_status": "scheduled" | "completed" | null,
+      "agm_highlights": "Bulleted highlights of the AGM if completed, or null"
     }
 
     Announcement Text:
     ${announcementText}
   `;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout (NIM can be slow)
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 2000;
+  let lastError;
 
-  try {
-    const response = await fetch(NIM_BASE_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${NVIDIA_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: "meta/llama-3.1-70b-instruct",
-        messages: [
-          {
-            role: "system",
-            content: "You are a highly rigorous, institutional-grade Indian equity research analyst. Your summaries must begin with a clear, high-level qualitative verdict of whether the results/news are overall good (strong/expansion), flat/neutral, or bad (weak/contraction) relative to expectations or thesis, followed by the key supporting metrics. Completely avoid generic boilerplate advice.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.1,
-        max_tokens: 800,
-        response_format: { type: "json_object" },
-      }),
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error("[AI ERROR] NVIDIA NIM API failed:", errorData);
-      throw new Error(`NVIDIA NIM API error: ${errorData.message || response.statusText}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices[0].message.content;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout (NIM can be slow)
 
     try {
-      const cleanJson = content.replace(/```json\n?/, "").replace(/\n?```/, "").trim();
-      return JSON.parse(cleanJson);
+      const response = await fetch(NIM_BASE_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${NVIDIA_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: "meta/llama-3.1-70b-instruct",
+          messages: [
+            {
+              role: "system",
+              content: "You are a highly rigorous, institutional-grade Indian equity research analyst. Your summaries must begin with a clear, high-level qualitative verdict of whether the results/news are overall good (strong/expansion), flat/neutral, or bad (weak/contraction) relative to expectations or thesis, followed by the key supporting metrics. Completely avoid generic boilerplate advice.",
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          temperature: 0.1,
+          max_tokens: 800,
+          response_format: { type: "json_object" },
+        }),
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        let errorData = {};
+        try {
+          errorData = await response.json();
+        } catch (_) {}
+        console.error(`[AI ERROR] NVIDIA NIM API failed (attempt ${attempt}/${MAX_RETRIES}):`, errorData);
+        
+        const isRetryable = [429, 503, 504].includes(response.status);
+        if (isRetryable && attempt < MAX_RETRIES) {
+          const delay = BASE_DELAY_MS * attempt;
+          console.warn(`[NIM] Retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw new Error(`NVIDIA NIM API error: ${errorData.message || response.statusText}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0].message.content;
+
+      try {
+        const cleanJson = content.replace(/```json\n?/, "").replace(/\n?```/, "").trim();
+        return JSON.parse(cleanJson);
+      } catch (err) {
+        console.error(`Failed to parse NIM response as JSON (attempt ${attempt}/${MAX_RETRIES}):`, content);
+        if (attempt < MAX_RETRIES) {
+          console.warn(`[NIM] Invalid JSON response, retrying...`);
+          continue;
+        }
+        throw new Error("AI output was not valid JSON.");
+      }
     } catch (err) {
-      console.error("Failed to parse NIM response as JSON:", content);
-      throw new Error("AI output was not valid JSON.");
+      clearTimeout(timeoutId);
+      lastError = err;
+      if (err.name === "AbortError") {
+        lastError = new Error("NVIDIA NIM API request timed out (90s)");
+      }
+
+      const isNetworkOrTimeout = err.name === "TypeError" || err.name === "AbortError" || err.message.includes("fetch");
+      if (isNetworkOrTimeout && attempt < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * attempt;
+        console.warn(`[RETRY] NIM classification attempt ${attempt} failed. Retrying in ${delay}ms: ${lastError.message}`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw lastError;
     }
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === "AbortError") {
-      throw new Error("NVIDIA NIM API request timed out (90s)");
-    }
-    throw err;
   }
+
+  throw lastError;
 }

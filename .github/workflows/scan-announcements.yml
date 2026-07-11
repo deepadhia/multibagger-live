@@ -1,14 +1,12 @@
 name: 📢 Corporate Announcement Scanner
 
-# ─── Triggers ────────────────────────────────────────────────────────────────
-# Runs 4× per day Mon-Sat covering full NSE/BSE market hours (9:00 AM – 3:30 PM IST)
-# All times in UTC (IST = UTC + 5:30)
+# Triggered externally by Cloudflare Dispatcher or manually via GitHub UI
 on:
-  schedule:
-    - cron: '30 3 * * 1-6'   # 09:00 AM IST — Pre-open / Opening bell
-    - cron: '30 5 * * 1-6'   # 11:00 AM IST — Mid-morning sweep
-    - cron: '0 8 * * 1-6'    # 01:30 PM IST — Post-lunch sweep
-    - cron: '0 10 * * 1-6'   # 03:30 PM IST — Market close sweep
+  # schedule:
+  #   - cron: '30 3 * * 1-6'   # 09:00 AM IST — Pre-open / Opening bell
+  #   - cron: '30 5 * * 1-6'   # 11:00 AM IST — Mid-morning sweep
+  #   - cron: '0 8 * * 1-6'    # 01:30 PM IST — Post-lunch sweep
+  #   - cron: '0 10 * * 1-6'   # 03:30 PM IST — Market close sweep
 
   # Manual trigger — useful for testing or on-demand runs outside hours
   workflow_dispatch:
