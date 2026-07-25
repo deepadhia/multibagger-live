@@ -408,6 +408,33 @@ export type Database = {
           },
         ]
       }
+      prompt_templates: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          template: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          template: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          template?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       quarterly_snapshots: {
         Row: {
           confidence_score: number | null
@@ -596,6 +623,7 @@ export type Database = {
           sector: string | null
           ticker: string
           tracking_directives: string | null
+          key_thesis_metrics: string | null
         }
         Insert: {
           buy_price?: number | null
@@ -616,6 +644,7 @@ export type Database = {
           sector?: string | null
           ticker: string
           tracking_directives?: string | null
+          key_thesis_metrics?: string | null
         }
         Update: {
           buy_price?: number | null
@@ -636,6 +665,7 @@ export type Database = {
           sector?: string | null
           ticker?: string
           tracking_directives?: string | null
+          key_thesis_metrics?: string | null
         }
         Relationships: []
       }

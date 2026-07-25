@@ -16,6 +16,7 @@ import { InvestmentThesisEditor } from "@/components/InvestmentThesisEditor";
 import { PromisesTab } from "@/components/PromisesTab";
 import { SnapshotsTab } from "@/components/SnapshotsTab";
 import { CopyGeminiPrompt } from "@/components/CopyGeminiPrompt";
+import { InstitutionalPromptsTab } from "@/components/InstitutionalPromptsTab";
 import { ImportGeminiResponse } from "@/components/ImportGeminiResponse";
 import { MasterPromptEditor } from "@/components/MasterPromptEditor";
 import { DealsTab } from "@/components/DealsTab";
@@ -37,7 +38,8 @@ import { apiFetch, apiUrl } from "@/lib/apiFetch";
 import {
   RefreshCw, Loader2, TrendingUp, TrendingDown,
   ArrowUpRight, ArrowDownRight, Target, AlertTriangle, Zap, Quote,
-  BarChart3, Activity, Shield, FileText, Users, Briefcase, ExternalLink, Trash2, Newspaper, PieChart, Download
+  BarChart3, Activity, Shield, FileText, Users, Briefcase, ExternalLink, Trash2, Newspaper, PieChart, Download,
+  BrainCircuit
 } from "lucide-react";
 import { QuarterlyMetricsTab } from "@/components/QuarterlyMetricsTab";
 import { DecisionAlpha } from "@/components/DecisionAlpha";
@@ -806,6 +808,9 @@ export default function StockDetailPage() {
             </TabsTrigger>
             <TabsTrigger value="quarterly" className="font-mono text-xs gap-1.5">
               <PieChart className="h-3 w-3" /> Quarterly Metrics
+            </TabsTrigger>
+            <TabsTrigger value="institutional-prompts" className="font-mono text-xs gap-1.5">
+              <BrainCircuit className="h-3 w-3" /> Institutional Prompts
             </TabsTrigger>
             </TabsList>
           </div>
@@ -1610,6 +1615,15 @@ export default function StockDetailPage() {
           {/* ═══ QUARTERLY METRICS TAB ═══ */}
           <TabsContent value="quarterly" className="space-y-4 mt-4">
             <QuarterlyMetricsTab stockId={id!} />
+          </TabsContent>
+          <TabsContent value="institutional-prompts" className="space-y-4 mt-4">
+            {stock && (
+              <InstitutionalPromptsTab 
+                stockId={id!} 
+                stockTicker={stock.ticker}
+                initialMetrics={stock.key_thesis_metrics} 
+              />
+            )}
           </TabsContent>
         </Tabs>
       </div>
