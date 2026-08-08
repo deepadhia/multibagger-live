@@ -192,14 +192,33 @@ Be extremely decisive, objective, and evidence-driven. Zero fluff allowed.`;
     console.warn("[WORKER] Could not fetch DB prompt template, using default rules.");
   }
 
-  const userPrompt = `
+  // Split long concalls into 10,000-character overlapping chunks to audit 100% of Q&A (including middle sections)
+  const CHUNK_SIZE = 10000;
+  const OVERLAP = 1000;
+  let textChunks = [];
+
+  if (!text || text.length <= CHUNK_SIZE) {
+    textChunks = [text || ""];
+  } else {
+    let offset = 0;
+    while (offset < text.length && textChunks.length < 5) {
+      textChunks.push(text.substring(offset, offset + CHUNK_SIZE));
+      offset += (CHUNK_SIZE - OVERLAP);
+    }
+  }
+
+  // Execute chunk evaluations concurrently in parallel via Promise.all
+  const chunkResults = await Promise.all(
+    textChunks.map(async (chunkText, idx) => {
+      const userPrompt = `
 Ticker: ${ticker}
 Stage: ${stage === 'pending_stage1' ? 'Stage 1 (Earnings Results + PPT)' : 'Stage 2 (Concall Transcript Re-assessment)'}
+Transcript Part: ${idx + 1} of ${textChunks.length}
 Investment Thesis Context:
 ${thesis || "Growth investing, clean balance sheet, high ROCE."}
 
-Filing Content:
-${capContext(text, 18000)}
+Filing Content (Part ${idx + 1}):
+${chunkText}
 
 ── Tasks ──
 1. Evaluate Management Credibility (Tier 1: High Track Record / Promises Kept | Tier 2: Neutral / Unproven | Tier 3: High Risk / Overpromises).
@@ -230,19 +249,25 @@ Return ONLY a valid JSON object:
   ]
 }
 `;
+      try {
+        const rawJson = await runNimPrompt(systemPrompt, userPrompt, 0.05);
+        let cleaned = (rawJson || "").trim();
+        const firstBrace = cleaned.indexOf("{");
+        const lastBrace = cleaned.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+          return JSON.parse(cleaned);
+        }
+      } catch (err) {
+        console.warn(`[WORKER CHUNK WARN] Part ${idx + 1} extraction failed:`, err.message);
+      }
+      return null;
+    })
+  );
 
-  const rawJson = await runNimPrompt(systemPrompt, userPrompt, 0.05);
-  try {
-    let cleaned = (rawJson || "").trim();
-    if (!cleaned) throw new Error("Empty LLM response");
-    const firstBrace = cleaned.indexOf("{");
-    const lastBrace = cleaned.lastIndexOf("}");
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-    }
-    return JSON.parse(cleaned);
-  } catch (e) {
-    console.error(`[WORKER] Failed to parse JSON verdict for ${ticker}:`, rawJson);
+  // Merge and deduplicate commitments & drivers from ALL parallel chunks
+  const validResults = chunkResults.filter(Boolean);
+  if (validResults.length === 0) {
     return {
       credibility_tier: "Tier 2",
       action_signal: "HOLD",
@@ -252,11 +277,42 @@ Return ONLY a valid JSON object:
       commitments: []
     };
   }
+
+  const mergedVerdict = {
+    credibility_tier: validResults[0].credibility_tier || "Tier 2",
+    action_signal: validResults[0].action_signal || "HOLD",
+    conviction_score: validResults[0].conviction_score || 5,
+    verdict_summary: validResults[0].verdict_summary || "",
+    key_drivers: [],
+    commitments: []
+  };
+
+  const seenStatements = new Set();
+  const seenDrivers = new Set();
+
+  for (const res of validResults) {
+    if (res.key_drivers) {
+      for (const d of res.key_drivers) {
+        if (d && !seenDrivers.has(d.toLowerCase())) {
+          seenDrivers.add(d.toLowerCase());
+          mergedVerdict.key_drivers.push(d);
+        }
+      }
+    }
+    if (res.commitments) {
+      for (const c of res.commitments) {
+        const sKey = (c.statement || "").toLowerCase().trim();
+        if (sKey && !seenStatements.has(sKey)) {
+          seenStatements.add(sKey);
+          mergedVerdict.commitments.push(c);
+        }
+      }
+    }
+  }
+
+  return mergedVerdict;
 }
 
-/**
- * Main worker loop function.
- */
 /**
  * Main worker loop function.
  * @param {Object} options - Worker options

@@ -231,11 +231,11 @@ export async function extractCorporateActionDetails(category, ticker, announceme
     return null;
   }
 
-  // Cap text to 12,000 chars (head + tail) for NIM API timeout safety
+  // Cap text to 8,000 chars (head + tail) for NIM API timeout safety (3-5s response)
   let cappedText = announcementText || "";
-  if (cappedText.length > 12000) {
-    const half = 6000;
-    cappedText = `${cappedText.substring(0, half)}\n\n[... TRUNCATED MIDDLE CONTENT FOR NIM RATE LIMIT SAFETY ...]\n\n${cappedText.substring(cappedText.length - half)}`;
+  if (cappedText.length > 8000) {
+    const half = 4000;
+    cappedText = `${cappedText.substring(0, half)}\n\n[... TRUNCATED MIDDLE CONTENT FOR FAST NIM LATENCY ...]\n\n${cappedText.substring(cappedText.length - half)}`;
   }
 
   const prompt = getCategoryPrompt(category, ticker, cappedText, investmentThesis);

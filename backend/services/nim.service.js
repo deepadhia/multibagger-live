@@ -35,11 +35,11 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     ? `── Investment Thesis (Context) ──\n${displayThesis}\n`
     : "";
 
-  // Cap text to 12,000 chars (head + tail) to keep LLM response fast (5-10s) and avoid 90s gateway timeouts
+  // Cap text to 8,000 chars (head + tail) to keep LLM response fast (3-5s) and avoid 90s gateway timeouts
   let cappedText = announcementText || "";
-  if (cappedText.length > 12000) {
-    const half = 6000;
-    cappedText = `${cappedText.substring(0, half)}\n\n[... TRUNCATED MIDDLE CONTENT FOR NIM RATE LIMIT SAFETY ...]\n\n${cappedText.substring(cappedText.length - half)}`;
+  if (cappedText.length > 8000) {
+    const half = 4000;
+    cappedText = `${cappedText.substring(0, half)}\n\n[... TRUNCATED MIDDLE CONTENT FOR FAST NIM LATENCY ...]\n\n${cappedText.substring(cappedText.length - half)}`;
   }
 
   const prompt = `
