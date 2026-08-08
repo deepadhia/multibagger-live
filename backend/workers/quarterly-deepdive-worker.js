@@ -222,7 +222,8 @@ Return ONLY a valid JSON object:
       "metric": "Metric name (e.g. EBITDA Margin, Plant Commissioning, Receivables Days)",
       "target_value": "Target figure",
       "timeline": "Target quarter/year (e.g. Q3 FY26)",
-      "status": "Pending" | "Achieved" | "Delayed" | "Missed",
+      "status": "Pending" | "Achieved" | "Partially Achieved" | "Missed",
+      "status_rule": "CRITICAL: For multi-stage regulatory processes (e.g. Demergers, NCLT approvals, QIP allotments, Plant Commissioning), initial Board approval MUST be marked status 'Pending' (In Progress). Mark 'Achieved' ONLY when final operational completion or regulatory clearance is explicitly documented in the evidence.",
       "blockers_and_risks": "If Delayed or Missed, specify the exact reason given by management in concall (e.g. 'Equipment lead time & customs clearance delay by 2 quarters')",
       "credibility_impact": "positive" | "neutral" | "negative"
     }
