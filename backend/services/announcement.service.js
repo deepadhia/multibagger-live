@@ -631,14 +631,20 @@ export async function markHeartbeatSent() {
  * @returns {Promise<string>}
  */
 export async function extractTextFromPdfUrl(url) {
-  if (!url) return "";
+  let downloadUrl = url;
+  if (downloadUrl.includes("drive.google.com/file/d/")) {
+    const match = downloadUrl.match(/\/file\/d\/([^\/]+)/);
+    if (match && match[1]) {
+      downloadUrl = `https://drive.google.com/uc?export=download&id=${match[1]}`;
+    }
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout for PDF download
 
   try {
-    console.log(`[PDF] Downloading... ${url}`);
-    const response = await fetch(url, {
+    console.log(`[PDF] Downloading... ${downloadUrl}`);
+    const response = await fetch(downloadUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       },
@@ -655,11 +661,16 @@ export async function extractTextFromPdfUrl(url) {
     const arrayBuffer = await response.arrayBuffer();
     const uint8 = new Uint8Array(arrayBuffer);
 
-    // Suppress noisy pdf.js standardFontDataUrl / TT bytecode warnings from stdout
+    // Suppress noisy pdf.js standardFontDataUrl / TT bytecode / getHexString warnings from stdout
     const origWarn = console.warn;
     console.warn = (...args) => {
       const msg = args.join(" ");
-      if (msg.includes("standardFontDataUrl") || msg.includes("TT: undefined function")) return;
+      if (
+        msg.includes("standardFontDataUrl") ||
+        msg.includes("TT: undefined function") ||
+        msg.includes("getHexString") ||
+        msg.includes("Indexing all PDF objects")
+      ) return;
       origWarn(...args);
     };
 

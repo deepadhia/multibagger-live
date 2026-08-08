@@ -243,7 +243,8 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           "newspaper publication", "newspaper advertisement",
           "voting results", "scrutinizer report",
           "compliance certificate", "loss of share certificate",
-          "board meeting notice", "closure of trading window"
+          "board meeting notice", "closure of trading window",
+          "xbrl"
         ];
         const titleLower = title.toLowerCase();
         if (aiResult.is_earnings_release && NEVER_EARNINGS_TITLES.some(p => titleLower.includes(p))) {
@@ -347,7 +348,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           priority: aiResult.priority,
           impact: aiResult.impact,
           confidence: aiResult.confidence,
-          summary: finalSummary,
+          summary: aiResult.summary,
           status: dbStatus,
           sent_to_telegram: sentToTelegram,
           is_earnings_release: aiResult.is_earnings_release || false,

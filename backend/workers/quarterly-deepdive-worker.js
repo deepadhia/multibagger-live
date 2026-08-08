@@ -233,6 +233,7 @@ Return ONLY a valid JSON object:
   const rawJson = await runNimPrompt(systemPrompt, userPrompt, 0.05);
   try {
     let cleaned = (rawJson || "").trim();
+    if (!cleaned) throw new Error("Empty LLM response");
     const firstBrace = cleaned.indexOf("{");
     const lastBrace = cleaned.lastIndexOf("}");
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -261,7 +262,7 @@ Return ONLY a valid JSON object:
  * @param {boolean} [options.suppressTelegram=false] - Whether to skip Telegram alerts (useful during bulk backfills)
  */
 export async function processPendingDeepDives(options = {}) {
-  const { suppressTelegram = false, tickers = null, batchSize = 4 } = options;
+  const { suppressTelegram = false, tickers = null, batchSize = 4, allowHistorical = false } = options;
   console.log(`[WORKER] Polling for pending quarterly deep-dives (parallel batch size: ${batchSize})...`);
   
   let queryText = `SELECT ca.id, ca.stock_id, ca.ticker, ca.title, ca.attachment_url, ca.filing_date, ca.deep_dive_status,
@@ -270,6 +271,10 @@ export async function processPendingDeepDives(options = {}) {
      JOIN stocks s ON s.id = ca.stock_id
      WHERE ca.deep_dive_status IN ('pending_stage1', 'pending_stage2')
        AND s.category = 'Core'`;
+
+  if (!allowHistorical && !suppressTelegram) {
+    queryText += ` AND ca.created_at >= NOW() - INTERVAL '30 days'`;
+  }
   
   const queryParams = [];
   if (tickers && tickers.length > 0) {
