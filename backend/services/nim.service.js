@@ -4,6 +4,8 @@
  */
 
 import { NVIDIA_API_KEY } from "../config/env.js";
+import { extractDeterministicFinancials } from "./financial-validator.service.js";
+import { applyInstitutionalGuard } from "./institutional-guard.service.js";
 
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
@@ -60,10 +62,18 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     - Be decisive. Only use NEUTRAL if there is truly no impact on the thesis.
     - IMPORTANT: If the announcement is an Earnings Release/Financial Result, you MUST evaluate its numbers and margins against the investment thesis.
 
+    ── Financial Data Precision & Extraction Rules ──
+    1. MANDATORY YOY PRECEDENCE: YoY comparison (e.g. Q1 FY27 vs Q1 FY26) is MANDATORY and MUST take precedence over QoQ sequential comparisons. If PAT contracts YoY (> -10%) or EBITDA margin contracts YoY (> -200 bps), lead with this YoY contraction as the headline financial result. NEVER bury a YoY profit or margin decline behind a QoQ sequential recovery framing.
+    2. PAT PRECISION: Always extract 'Net Profit for the period (PAT) attributable to Owners of the Company' (e.g. ₹149.19 Cr for Anant Raj, ₹109.14 Cr consolidated / ₹105.47 Cr standalone for HBL). NEVER use intermediate pre-tax or pre-associate line items (e.g. ₹146.13 Cr).
+    3. MANDATORY EBITDA & MARGINS: For all Financial Results filings, ALWAYS extract or calculate EBITDA (Profit Before Tax + Finance Costs + Depreciation) and EBITDA Margin % (EBITDA / Revenue from Operations * 100). Always state EBITDA YoY % growth and EBITDA Margin bps change.
+    4. SEGMENT RED FLAG DETECTION: Extract all segment-wise results (Revenue & EBIT) and explicitly highlight any segment experiencing a YoY revenue/EBIT decline > 20% as a Segment Red Flag (e.g. HBL Defence & Aviation segment collapsing -72% YoY). NEVER claim 'no red flags' when a major segment collapses YoY.
+    5. MULTI-SEGMENT THESIS RESPECT: NEVER claim a company has single-segment operations or no diversification when the investment thesis or filing explicitly details multiple verticals (e.g., Real Estate + Data Center + Cloud Services under Ashok Cloud).
+    6. ANTI-HALLUCINATION: NEVER report future quarter numbers (e.g. Q2 FY27) as actual achieved performance. Label any forward figure as 'Management Target/Guidance', never actuals.
+
     ── Strict Content Rules (Zero Boilerplate) ──
     1. ABSOLUTELY FORBID generic fluff or empty advice such as "Investors should review the results to assess progress", "The company's performance is key", "Check the details to decide". This is useless and forbidden.
     2. DETECT SCANNED/EMPTY FILINGS: If the Announcement Text below contains NO actual numbers, details, or outcomes (e.g., it is just a brief intimation of a future meeting or the text is empty/unreadable), your summary MUST explicitly state: "No detailed figures or outcomes are available in this filing (scanned PDF or routine intimation only)." In this case, DO NOT make up generic thesis alignment fluff.
-    3. FACTUAL SUMMARY & VERDICT: Your summary must be 2-3 highly analytical sentences. Sentence 1: Factual operational/financial event (with exact figures: ₹Cr, %, margins if available). Sentence 2: Explicit verdict on whether the results/news are overall good (strong growth/expansion), flat/neutral, or bad (contraction/weakness) relative to expectations/thesis, and the main driver. Sentence 3: Specific business impact and concrete actionable implication for the investor.
+    3. FACTUAL SUMMARY & VERDICT: Your summary must be 2-3 highly analytical sentences. Sentence 1: Factual operational/financial event (with exact figures: Revenue ₹Cr, EBITDA ₹Cr & %, PAT ₹Cr & %). Sentence 2: Explicit verdict on whether the results/news are overall good (strong growth/expansion), flat/neutral, or bad (contraction/weakness) relative to expectations/thesis, and the main driver. Sentence 3: Specific business impact and concrete actionable implication for the investor.
 
     ── Priority Rules ──
     HIGH: Earnings Results / Financial Results, Large orders (>10% of annual revenue), M&A / demergers / restructuring, management/auditor exits, capex >20% net worth, credit downgrades, regulatory actions, Product Approvals, Patents, Licenses, Large contract wins, Awards, MOU signings with strategic partners.
@@ -164,7 +174,11 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
 
       try {
         const cleanJson = content.replace(/```json\n?/, "").replace(/\n?```/, "").trim();
-        return JSON.parse(cleanJson);
+        const parsed = JSON.parse(cleanJson);
+
+        // Apply Deterministic Financial Extractor & Post-Processing Guard Layer
+        const finData = extractDeterministicFinancials(announcementText);
+        return applyInstitutionalGuard(parsed, finData, title, ticker);
       } catch (err) {
         console.error(`Failed to parse NIM response as JSON (attempt ${attempt}/${MAX_RETRIES}):`, content);
         if (attempt < MAX_RETRIES) {

@@ -9,6 +9,8 @@ import { pool } from "../db/pool.js";
 import { extractTextFromPdfUrl } from "../services/announcement.service.js";
 import { sendTelegramMessage } from "../services/telegram.service.js";
 import { NVIDIA_API_KEY } from "../config/env.js";
+import { extractDeterministicFinancials } from "../services/financial-validator.service.js";
+import { applyInstitutionalGuard } from "../services/institutional-guard.service.js";
 
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
@@ -176,7 +178,7 @@ async function runNimPrompt(systemPrompt, userPrompt, temperature = 0.05) {
 /**
  * Formulates Institutional Action Verdict (ADD / HOLD / TRIM + Credibility Tier).
  */
-async function evaluateInstitutionalVerdict(ticker, thesis, text, stage) {
+export async function evaluateInstitutionalVerdict(ticker, thesis, text, stage, title = "") {
   const systemPrompt = `You are a Chief Investment Officer at an institutional long-only fund evaluating Indian growth equities.
 Be extremely decisive, objective, and evidence-driven. Zero fluff allowed.`;
 
@@ -226,6 +228,17 @@ ${chunkText}
 3. List 3 concrete reasons supporting this signal.
 4. Extract 1-2 core management commitments with target timelines.
 5. EXPLICITLY DETECT GUIDANCE DELAYS: If a past commitment (e.g., plant commissioning, margin target, receivable reduction) was pushed back by 1-2 quarters in this concall/PPT, mark status as "Delayed", update the timeline, and extract the EXACT reason management gave into blockers_and_risks.
+
+── Institutional Financial & Thesis Rules ──
+1. MANDATORY YOY PRECEDENCE: YoY comparison (e.g. Q1 FY27 vs Q1 FY26) is MANDATORY and MUST take precedence over QoQ sequential comparisons. If PAT contracts YoY (> -10%) or EBITDA margin contracts YoY (> -200 bps), the summary MUST lead with this YoY contraction as the headline financial result. NEVER bury a YoY profit or margin decline behind a QoQ sequential recovery framing.
+2. PAT PRECISION: Always extract Consolidated Net Profit (PAT) attributable to Owners of the Company (e.g. ₹149.19 Cr for Anant Raj, ₹109.14 Cr consolidated / ₹105.47 Cr standalone for HBL). NEVER use intermediate pre-tax or pre-associate line items (e.g. ₹146.13 Cr).
+3. MANDATORY EBITDA & MARGINS: Always extract/calculate EBITDA (PBT + Finance Costs + Depreciation) and EBITDA Margin % (EBITDA / Revenue * 100). Include EBITDA YoY % growth and EBITDA Margin bps expansion/contraction.
+4. SEGMENT RED FLAG DETECTION: Extract all segment-wise results (Revenue & EBIT) and explicitly highlight any segment experiencing a YoY revenue/EBIT decline > 20% as a Segment Red Flag (e.g. HBL Defence & Aviation segment collapsing -72% YoY). NEVER claim 'no red flags' when a major segment collapses YoY.
+5. MULTI-VERTICAL THESIS RESPECT: NEVER claim a company has single-segment operations or lacks growth catalysts when the investment thesis or filing explicitly details multiple verticals (e.g. Real Estate + Data Centers + Ashok Cloud).
+6. ANTI-HALLUCINATION: NEVER report future quarter numbers (e.g. Q2 FY27) as actual achieved performance. Label any forward figure as 'Management Target/Guidance', never actuals.
+7. ACTION SIGNAL RECALIBRATION:
+   - If PAT contracts > 15% YoY or EBITDA Margin contracts > 300 bps YoY, Action Signal MUST NOT be BUY/ADD. Evaluate as HOLD (Conviction 5/10) or TRIM (Conviction 4/10).
+   - If Revenue, EBITDA (+20%+ YoY, 29% margin), and PAT (+18%+ YoY) show a clean beat alongside live structural catalysts (demerger/capex), evaluate Action Signal as ADD (Conviction 8-9/10).
 ${dbPromptDirective}
 
 Return ONLY a valid JSON object:
@@ -251,7 +264,12 @@ Return ONLY a valid JSON object:
 `;
       try {
         const rawJson = await runNimPrompt(systemPrompt, userPrompt, 0.05);
-        let cleaned = (rawJson || "").trim();
+        let cleaned = (rawJson || "")
+          .replace(/```json\n?/g, "")
+          .replace(/```/g, "")
+          .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
+          .replace(/,\s*([\}\]])/g, "$1")
+          .trim();
         const firstBrace = cleaned.indexOf("{");
         const lastBrace = cleaned.lastIndexOf("}");
         if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -310,7 +328,8 @@ Return ONLY a valid JSON object:
     }
   }
 
-  return mergedVerdict;
+  const finData = extractDeterministicFinancials(text);
+  return applyInstitutionalGuard(mergedVerdict, finData, title, ticker);
 }
 
 /**
@@ -413,7 +432,8 @@ export async function processPendingDeepDives(options = {}) {
         item.ticker,
         item.investment_thesis,
         cappedText,
-        item.deep_dive_status
+        item.deep_dive_status,
+        item.title
       );
 
       // Save commitments into management_commitments table with deduplication & noise filtering
