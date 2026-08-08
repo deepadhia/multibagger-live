@@ -110,12 +110,14 @@ export async function sendTelegramMessage(text) {
  * @param {number}  [params.pdf_flag]         - BSE PDFFLAG (0/1/2) for URL routing
  * @param {string}  [params.source]           - "BSE" | "NSE"
  */
-export async function sendAnnouncementAlert({
-  ticker, title, priority, impact, summary, confidence,
-  key_data, deep_dive_indicator, result_date,
-  is_earnings_release, concall_type, concall_date, concall_time, is_rescheduled, category, exchangeTimestamp, docUrl, source = "BSE",
-  is_agm, agm_status, agm_highlights
-}) {
+export async function sendAnnouncementAlert(params) {
+  const {
+    ticker, title, priority, impact, summary, confidence,
+    key_data, deep_dive_indicator, result_date,
+    is_earnings_release, concall_type, concall_date, concall_time, is_rescheduled, category, exchangeTimestamp, docUrl, source = "BSE",
+    is_agm, agm_status, agm_highlights, thesis_drift_state, root_cause, recovery_state, final_action
+  } = params || {};
+
   const priorityEmoji  = priority === "HIGH" ? "🔴" : priority === "MEDIUM" ? "🟡" : "⚪";
   const impactEmoji    = impact === "POSITIVE" ? "📈" : impact === "NEGATIVE" ? "📉" : "⚖️";
   const confidenceBadge = confidence === "HIGH" ? "✅ HIGH" : "⚠️ LOW";
