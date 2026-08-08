@@ -311,6 +311,8 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
                 confidence: aiResult.confidence,
                 key_data: aiResult.key_data,
                 deep_dive_indicator: aiResult.deep_dive_indicator,
+                promises_reconciliation: aiResult.promises_reconciliation,
+                thesis_strengthened: aiResult.thesis_strengthened,
                 result_date: aiResult.result_date,
                 is_earnings_release: aiResult.is_earnings_release,
                 concall_type: concallType,
