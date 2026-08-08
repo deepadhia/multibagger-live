@@ -275,6 +275,8 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
         // 7. Alert if High Priority or Earnings Release or Concall/Transcript or Completed AGM or Regulatory/Credit event
         let sentToTelegram = false;
         const isRegulatoryOrCredit = ["REGULATORY_ACTION", "CREDIT_EVENT"].includes(filingCategory);
+        const isAgm = eventAnalysis?.is_agm || title.toUpperCase().includes("AGM") || title.toUpperCase().includes("ANNUAL GENERAL MEETING");
+        const isAgmCompleted = isAgm && (title.toUpperCase().includes("OUTCOME") || title.toUpperCase().includes("PROCEEDINGS") || title.toUpperCase().includes("VOTING RESULTS"));
         const shouldHaveAlerted = concallType || aiResult.is_earnings_release || isAgmCompleted || isRegulatoryOrCredit || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL");
 
         // 7a. Event-level Deduplication Guard (Check if alert sent recently for same ticker & event type/doc URL)
