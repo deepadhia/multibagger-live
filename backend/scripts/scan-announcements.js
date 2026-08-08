@@ -67,9 +67,11 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
   await resetStuckPending();
   await sendHeartbeat();
 
-  // 1. Get all stocks from DB
-  const { rows: stocks } = await pool.query("SELECT id, ticker, bse_scrip_code, investment_thesis, category FROM stocks");
-  console.log(`Scanning ${stocks.length} stocks...`);
+  // 1. Get portfolio stocks dynamically from DB (Category = 'Core')
+  const { rows: stocks } = await pool.query(
+    "SELECT id, ticker, bse_scrip_code, investment_thesis, category FROM stocks WHERE category = 'Core' ORDER BY ticker"
+  );
+  console.log(`Scanning ${stocks.length} Core portfolio stocks...`);
 
   // ── Run-level stats (for end-of-run summary) ──
   let alertsSent        = 0;
