@@ -35,6 +35,13 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     ? `── Investment Thesis (Context) ──\n${displayThesis}\n`
     : "";
 
+  // Cap text to 12,000 chars (head + tail) to keep LLM response fast (5-10s) and avoid 90s gateway timeouts
+  let cappedText = announcementText || "";
+  if (cappedText.length > 12000) {
+    const half = 6000;
+    cappedText = `${cappedText.substring(0, half)}\n\n[... TRUNCATED MIDDLE CONTENT FOR NIM RATE LIMIT SAFETY ...]\n\n${cappedText.substring(cappedText.length - half)}`;
+  }
+
   const prompt = `
     You are a sharp, highly rigorous Indian equity analyst. Analyze this BSE/NSE corporate announcement and return an institutional-grade, thesis-aware classification.
     
@@ -96,7 +103,7 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     }
 
     Announcement Text:
-    ${announcementText}
+    ${cappedText}
   `;
 
   const MAX_RETRIES = 3;
