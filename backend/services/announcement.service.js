@@ -386,47 +386,93 @@ async function getNseCookies() {
 export async function fetchNseAnnouncements(symbol, lookbackDaysNum = 30) {
   if (!symbol) return [];
   const cookies = await getNseCookies();
+
+  const toDateObj = new Date();
+  const fromDateObj = new Date();
+  fromDateObj.setDate(fromDateObj.getDate() - lookbackDaysNum);
+
+  const formatDate = (d) => {
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
+  const fromDateStr = formatDate(fromDateObj);
+  const toDateStr = formatDate(toDateObj);
   
-  const url = `https://www.nseindia.com/api/corporate-announcements`;
-  const params = new URLSearchParams({
-    index: "equities",
-    symbol: symbol
-  });
+  // New NSE NextApi endpoint
+  const url = `https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi?functionName=getCorporateAnnouncement&symbol=${symbol}&marketApiType=equities&subject=&fromDate=${fromDateStr}&toDate=${toDateStr}`;
 
-  const response = await fetch(`${url}?${params.toString()}`, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "*/*",
-      "Referer": `https://www.nseindia.com/get-quotes/equity?symbol=${symbol}`,
-      "Cookie": cookies
-    },
-  });
+  try {
+    let response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Referer": `https://www.nseindia.com/get-quotes/equity?symbol=${symbol}`,
+        "Cookie": cookies
+      },
+    });
 
-  if (!response.ok) {
-    console.error(`NSE API failed for ${symbol}:`, response.status);
+    let data = [];
+    if (response.ok) {
+      data = await response.json();
+    }
+
+    // Symbol alias check (e.g. HBLPOWER -> HBLENGINE)
+    if ((!Array.isArray(data) || data.length === 0) && symbol === "HBLPOWER") {
+      const aliasUrl = `https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi?functionName=getCorporateAnnouncement&symbol=HBLENGINE&marketApiType=equities&subject=&fromDate=${fromDateStr}&toDate=${toDateStr}`;
+      const aliasRes = await fetch(aliasUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "*/*",
+          "Referer": `https://www.nseindia.com/get-quotes/equity?symbol=HBLENGINE`,
+          "Cookie": cookies
+        },
+      });
+      if (aliasRes.ok) {
+        data = await aliasRes.json();
+      }
+    }
+
+    // Fallback to legacy endpoint if NextApi returned 0 results
+    if (!Array.isArray(data) || data.length === 0) {
+      const legacyUrl = `https://www.nseindia.com/api/corporate-announcements?index=equities&symbol=${symbol}`;
+      const legacyRes = await fetch(legacyUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "*/*",
+          "Referer": `https://www.nseindia.com/get-quotes/equity?symbol=${symbol}`,
+          "Cookie": cookies
+        },
+      });
+      if (legacyRes.ok) {
+        data = await legacyRes.json();
+      }
+    }
+
+    const lookbackDate = new Date();
+    lookbackDate.setDate(lookbackDate.getDate() - lookbackDaysNum);
+
+    return (Array.isArray(data) ? data : [])
+      .filter(ann => {
+        const annDate = new Date(ann.sort_date || ann.an_dt || ann.dt);
+        return annDate >= lookbackDate;
+      })
+      .map(ann => ({
+        NEWS_ID: ann.seq_id || ann.desc || ann.dt, 
+        NEWSSUB: ann.desc,
+        DT_TM: ann.sort_date || ann.an_dt || ann.dt,
+        SOURCE: "NSE",
+        attachment: ann.attchmntFile 
+          ? (ann.attchmntFile.startsWith("http") ? ann.attchmntFile : `https://nsearchives.nseindia.com/corporate/${ann.attchmntFile}`)
+          : null,
+        attachment_text: ann.attchmntText
+      }));
+  } catch (err) {
+    console.error(`[NSE API ERROR] Failed for ${symbol}:`, err.message);
     return [];
   }
-
-  const data = await response.json();
-  const lookbackDate = new Date();
-  lookbackDate.setDate(lookbackDate.getDate() - lookbackDaysNum);
-
-  // NSE returns an array directly. Filter for last 30 days to avoid history bloat.
-  return (data || [])
-    .filter(ann => {
-      const annDate = new Date(ann.sort_date || ann.an_dt || ann.dt);
-      return annDate >= lookbackDate;
-    })
-    .map(ann => ({
-      NEWS_ID: ann.seq_id || ann.desc, 
-      NEWSSUB: ann.desc,
-      DT_TM: ann.sort_date || ann.an_dt,
-      SOURCE: "NSE",
-      attachment: ann.attchmntFile 
-        ? (ann.attchmntFile.startsWith("http") ? ann.attchmntFile : `https://nsearchives.nseindia.com/corporate/${ann.attchmntFile}`)
-        : null,
-      attachment_text: ann.attchmntText
-    }));
 }
 
 /**
