@@ -69,7 +69,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
 
   // 1. Get portfolio stocks dynamically from DB (Category = 'Core')
   const { rows: stocks } = await pool.query(
-    "SELECT id, ticker, bse_scrip_code, investment_thesis, category FROM stocks WHERE category = 'Core' ORDER BY ticker"
+    "SELECT id, ticker, COALESCE(nse_symbol, ticker) AS nse_symbol, bse_scrip_code, investment_thesis, category FROM stocks WHERE category = 'Core' ORDER BY ticker"
   );
   console.log(`Scanning ${stocks.length} Core portfolio stocks...`);
 
@@ -81,7 +81,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
 
   for (const stock of stocks) {
     try {
-      console.log(`Checking ${stock.ticker} (${stock.bse_scrip_code})...`);
+      console.log(`Checking ${stock.ticker} (BSE: ${stock.bse_scrip_code}, NSE: ${stock.nse_symbol})...`);
       
       // 2. Fetch from BOTH BSE and NSE
       let bseList = [];
@@ -96,7 +96,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
       }
 
       try {
-        nseList = await fetchNseAnnouncements(stock.ticker);
+        nseList = await fetchNseAnnouncements(stock.nse_symbol);
         console.log(`Found ${nseList.length} raw announcements for ${stock.ticker} (NSE)`);
       } catch (err) {
         console.error(`[ERROR] NSE fetch failed for ${stock.ticker}:`, err.message);
