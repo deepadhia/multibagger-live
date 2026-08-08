@@ -245,7 +245,38 @@ The platform now operates on a sophisticated **V12 Truth Layer**, upgrading from
 - **Explained Cooldown**: Intelligent handling of one-time explained selling events (block deals, PE exits).
 - **Event-Driven Intelligence**: Real-time corporate action ingestion (BSE/NSE) that updates conviction in between quarterly reports.
 
-### 4. Decision Engine (Prompt Generator)
+### 4. 4-Layer Institutional Falsification Engine (V13 Thesis Audit)
+The platform features an automated, anti-confirmation-bias thesis audit engine:
+
+```text
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│                           4-LAYER INSTITUTIONAL FALSIFICATION ENGINE                      │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                           │
+│ 1. 📄 LAYER 1: EVIDENCE LAYER                                                            │
+│    • Ingests raw LODR PDF filings, concall transcripts, investor presentations, & AGMs.  │
+│    • Extracts immutable facts strictly separated from interpretations and verdicts.       │
+│                                                                                           │
+│ 2. ⚡ LAYER 2: FALSIFICATION LAYER                                                        │
+│    • Disproving evidence audit with states: NONE ➔ EMERGING ➔ CONFIRMED.                  │
+│    • Hard Kill-Switch: STRUCTURAL THESIS BREAK ➔ THESIS INVALIDATED (Score Irrelevant).   │
+│                                                                                           │
+│ 3. 🧩 LAYER 3: ROOT-CAUSE DEDUPLICATION LAYER                                            │
+│    • Groups correlated downstream symptoms into ONE root-cause bucket:                    │
+│        [Plant Delay + Revenue Delay + OPM Compression] ──► ROOT CAUSE: Execution Delay    │
+│    • Applies ONE root-cause penalty instead of double-counting symptoms mechanically.     │
+│                                                                                           │
+│ 4. 🎯 LAYER 4: CONVICTION & ANTI-BIAS AUDIT LAYER                                         │
+│    • Anti-Management Bias Rule: Management Explanation ≠ Recovery Proof!                   │
+│    • State Machine:                                                                       │
+│      Miss ➔ Explanation ➔ Explanation Verified ➔ Recovery Evidence ➔ Conviction Restored│
+└───────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Management Reliability Score**: Tracks historical commitment fulfillment accuracy per management team. Teams with 85%+ reliability receive full credibility weighting, while teams with repeated misses incur **Credibility Decay Penalties** (`CREDIBILITY_DECAY -30%`).
+- **Concall-Aware Action Signals**: Fast tracks `🟢 BUY MORE / ACCUMULATE (Clean Guidance Beat)` on unambiguous beats, while outputting `⏳ WAIT FOR CONCALL TRANSCRIPT` on complex or margin-drag quarters until concall explanations are audited against empirical evidence.
+
+### 5. Decision Engine (Prompt Generator)
 - **Mathematical Pre-Processing**: Calculates tolerance-based trends (`±5%` growth, `±0.5%` margins) to filter out noise and extract true momentum before passing data to the LLM.
 - **Smart Data Handling**: Auto-detects holes in data, switches to 2-quarter trends dynamically, and labels missing data as `NOT DISCLOSED` to strictly prevent hallucination.
 - **Source Attribution**: Injects `Source:` labels alongside pre-processed metrics to guarantee the AI correctly attributes values.
