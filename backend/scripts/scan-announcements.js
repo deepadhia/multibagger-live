@@ -306,7 +306,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
                 title,
                 priority: aiResult.priority,
                 impact: aiResult.impact,
-                summary: finalSummary,
+                summary: aiResult.summary,
                 confidence: aiResult.confidence,
                 key_data: aiResult.key_data,
                 deep_dive_indicator: aiResult.deep_dive_indicator,

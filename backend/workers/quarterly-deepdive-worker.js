@@ -232,8 +232,13 @@ Return ONLY a valid JSON object:
 
   const rawJson = await runNimPrompt(systemPrompt, userPrompt, 0.05);
   try {
-    const cleanJson = rawJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    return JSON.parse(cleanJson);
+    let cleaned = (rawJson || "").trim();
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+    }
+    return JSON.parse(cleaned);
   } catch (e) {
     console.error(`[WORKER] Failed to parse JSON verdict for ${ticker}:`, rawJson);
     return {
@@ -263,7 +268,8 @@ export async function processPendingDeepDives(options = {}) {
             s.investment_thesis, s.company_name
      FROM corporate_announcements ca
      JOIN stocks s ON s.id = ca.stock_id
-     WHERE ca.deep_dive_status IN ('pending_stage1', 'pending_stage2')`;
+     WHERE ca.deep_dive_status IN ('pending_stage1', 'pending_stage2')
+       AND s.category = 'Core'`;
   
   const queryParams = [];
   if (tickers && tickers.length > 0) {
@@ -367,6 +373,12 @@ export async function processPendingDeepDives(options = {}) {
             [item.stock_id, quarter, statementText]
           );
 
+          let normalizedStatus = "Pending";
+          const sLower = (comm.status || "").toLowerCase();
+          if (sLower.includes("achieved") && !sLower.includes("partially")) normalizedStatus = "Achieved";
+          else if (sLower.includes("partially")) normalizedStatus = "Partially Achieved";
+          else if (sLower.includes("missed") || sLower.includes("broken")) normalizedStatus = "Missed";
+
           if (existing.length === 0) {
             await pool.query(
               `INSERT INTO management_commitments 
@@ -380,7 +392,7 @@ export async function processPendingDeepDives(options = {}) {
                 metricText,
                 comm.target_value || "As stated",
                 comm.timeline || "Medium Term",
-                comm.status || "Pending",
+                normalizedStatus,
                 verdict.verdict_summary,
                 comm.credibility_impact || (verdict.credibility_tier === "Tier 1" ? "positive" : (verdict.credibility_tier === "Tier 3" ? "negative" : "neutral")),
                 comm.blockers_and_risks || null
