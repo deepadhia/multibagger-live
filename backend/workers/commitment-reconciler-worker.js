@@ -82,9 +82,13 @@ export async function reconcileCommitments(ticker, dryRun = true) {
             }
           }
         }
-        if (!foundBeat && combinedText.includes('gravita') && targetNum <= 35) {
-          calculatedStatus = 'Achieved';
-          confidenceReason = `Verified Actual EBITDA CAGR (49%) >= Guided Target (${targetNum}%)`;
+        if (!foundBeat && targetNum > 0) {
+          // Check if latest snapshot metrics contain OPM or revenue CAGR >= targetNum
+          const opmVal = snapshots[0]?.metrics?.opm ? parseNumeric(snapshots[0].metrics.opm.value) : null;
+          if (opmVal && opmVal >= targetNum) {
+            calculatedStatus = 'Achieved';
+            confidenceReason = `Reported OPM (${opmVal}%) >= Target (${targetNum}%)`;
+          }
         }
       }
     }

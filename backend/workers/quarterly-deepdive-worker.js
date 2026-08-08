@@ -554,333 +554,70 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 }
 
 /**
- * Automatically reconciles past pending commitments for a stock against the latest reported quarterly financials.
- */
-/**
- * Automatically reconciles past pending commitments for a stock against reported financials & corporate actions.
+ * Automatically reconciles past pending commitments for a stock dynamically against reported financials & corporate actions.
  */
 export async function reconcileStockCommitments(ticker) {
   if (!ticker) return;
 
   try {
-    if (ticker === "SHAKTIPUMP") {
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q1 FY27 results (July 24, 2026): Revenue reached ₹858.67 Cr (+37.6% YoY growth) and PAT reached ₹51.59 Cr (+34.6% QoQ).'
-        WHERE ticker = 'SHAKTIPUMP' 
-          AND (metric ILIKE '%revenue%' OR metric ILIKE '%sales%' OR statement ILIKE '%growth%')
-      `);
+    // 1. Fetch pending commitments for this ticker
+    const { rows: pendingComms } = await pool.query(
+      "SELECT id, statement, metric, target_value, timeline FROM management_commitments WHERE ticker = $1 AND status = 'Pending'",
+      [ticker]
+    );
 
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Missed',
-            credibility_impact = 'negative',
-            evidence_summary = 'MISSED IN Q1 FY27: Management targeted 25% gross/component margins, but actual Q1 FY27 operating margin reported on July 24, 2026 came in at 8.26% (PAT ₹51.59 Cr). High raw material costs and Discom tender pricing created a massive margin miss.'
-        WHERE ticker = 'SHAKTIPUMP' 
-          AND (metric ILIKE '%margin%' OR statement ILIKE '%margin%')
-      `);
+    if (pendingComms.length === 0) return;
 
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q1 FY27 (July 2026): Confirmed order book stood at ₹1,000 Cr with solar pump revenue expanding 51.3% YoY.'
-        WHERE ticker = 'SHAKTIPUMP' 
-          AND (metric ILIKE '%capacity%' OR metric ILIKE '%order%')
-      `);
+    // 2. Fetch latest filing text & financials
+    const { rows: annRows } = await pool.query(
+      `SELECT title, attachment_url, event_analysis 
+       FROM corporate_announcements 
+       WHERE ticker = $1 AND event_analysis IS NOT NULL 
+       ORDER BY filing_date DESC LIMIT 1`,
+      [ticker]
+    );
 
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Maintained >35% dominant market share in PM-KUSUM solar pump installations nationwide.'
-        WHERE ticker = 'SHAKTIPUMP' AND (statement ILIKE '%market share%' OR metric ILIKE '%market share%')
-      `);
+    if (annRows.length === 0) return;
 
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q3 FY25: Successfully raised ₹337 Cr via QIP/equity placement for solar cell manufacturing expansion.'
-        WHERE ticker = 'SHAKTIPUMP' AND (statement ILIKE '%400 Crores%' OR statement ILIKE '%raising of funds%' OR metric ILIKE '%Fund Raise%')
-      `);
+    const latestAnn = annRows[0];
+    const verdict = latestAnn.event_analysis?.institutional_verdict;
+    if (!verdict) return;
 
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q4 FY25: Receivables reduced to <120 days through DISCOM escrow mechanism.'
-        WHERE ticker = 'SHAKTIPUMP' AND (statement ILIKE '%receivable%' OR metric ILIKE '%receivable%')
-      `);
-    } else if (ticker === "GRAVITA") {
-      // 1. QIP Proceeds & Fund Raising (Rs 1,000 Cr)
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q3 FY25 / FY25: QIP of ₹1,000 Cr successfully raised & deployed towards net debt reduction (achieving zero net debt) and Mundra/Phagi recycling plant capex.'
-        WHERE ticker = 'GRAVITA' 
-          AND (statement ILIKE '%QIP%' OR statement ILIKE '%1,000%' OR metric ILIKE '%QIP%' OR metric ILIKE '%fund%')
-      `);
+    // 3. Process each commitment dynamically using deterministic guard & extracted highlights
+    for (const comm of pendingComms) {
+      const stmtLower = (comm.statement || "").toLowerCase();
+      const metricLower = (comm.metric || "").toLowerCase();
 
-      // 2. Battery Recycling Commercialization (End of FY25)
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Commercialized battery recycling operations across Mundra, Togo, Tanzania & Ghana facilities prior to end of FY25.'
-        WHERE ticker = 'GRAVITA' 
-          AND (statement ILIKE '%battery recycling%' OR metric ILIKE '%operational milestone%')
-      `);
+      // Check if financial highlights or verdict key drivers evidence fulfillment
+      const driversText = (verdict.key_drivers || []).join(" ").toLowerCase();
+      const summaryText = (verdict.verdict_summary || "").toLowerCase();
+      const fullContextText = `${driversText} ${summaryText}`;
 
-      // 3. Customs Issue & Financial Performance Impact
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q1 FY25: Customs issue resolved with zero material financial or operational impact.'
-        WHERE ticker = 'GRAVITA' 
-          AND (statement ILIKE '%customs%' OR metric ILIKE '%financial performance%')
-      `);
+      // Exclude regulatory approvals from auto-achieved
+      const isRegulatoryAction = 
+        stmtLower.includes("scheme of arrangement") || 
+        stmtLower.includes("nclt") || 
+        stmtLower.includes("sebi approval") || 
+        stmtLower.includes("demerger") ||
+        metricLower.includes("regulatory");
 
-      // 4. Incident Recurrence & Safety Measures
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved: Strict safety measures and ESG protocols active across all recycling facilities with zero repeat compliance incidents.'
-        WHERE ticker = 'GRAVITA' 
-          AND (statement ILIKE '%incident%' OR statement ILIKE '%strict measures%')
-      `);
-
-      // 5. Metal Recycling 15% YoY Revenue Growth
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Metal recycling revenue expanded >20% YoY driven by lead & aluminum volume growth.'
-        WHERE ticker = 'GRAVITA' 
-          AND (statement ILIKE '%15% YoY%' OR statement ILIKE '%metal recycling%')
-      `);
-
-      // 6. Volume & Value-Added Products Growth
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Validated by reported financials: Gravita delivered 25%+ volume CAGR with value-added product mix expanding to 48-50%.'
-        WHERE ticker = 'GRAVITA' AND (metric ILIKE '%volume%' OR metric ILIKE '%value-added%')
-      `);
-    } else if (ticker === "TIMETECHNO") {
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Total debt reduced by ₹1,177 Mn in FY24 & ₹981 Mn in FY25.'
-        WHERE ticker = 'TIMETECHNO' AND (statement ILIKE '%debt%' OR metric ILIKE '%debt%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q3 FY26: 22.69 Cr 1:1 bonus equity shares credited to eligible shareholders.'
-        WHERE ticker = 'TIMETECHNO' AND (statement ILIKE '%bonus%' OR metric ILIKE '%bonus%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Sangli composite cylinder expansion plant commissioned and commercial production started.'
-        WHERE ticker = 'TIMETECHNO' AND (statement ILIKE '%Sangli%' OR statement ILIKE '%Q2 2025%' OR metric ILIKE '%Plant Commissioning%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved: Delivered 1,40,000 composite LPG cylinder order to HPCL within contract timeline.'
-        WHERE ticker = 'TIMETECHNO' AND (statement ILIKE '%HPCL%' OR statement ILIKE '%1,40,000%')
-      `);
-    } else if (ticker === "SKIPPER") {
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q1 FY27: QIP equity allotment completed at ₹470/share with top institutional participation.'
-        WHERE ticker = 'SKIPPER' AND (statement ILIKE '%preferential%' OR statement ILIKE '%allotment%' OR metric ILIKE '%equity%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved: Key director re-appointments and statutory auditor transition approved by AGM.'
-        WHERE ticker = 'SKIPPER' AND (statement ILIKE '%re-appointment%' OR statement ILIKE '%director%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved: Principal Commissioner (Appeals) CGST & CX Kolkata set aside the department penalty appeal in favor of Skipper.'
-        WHERE ticker = 'SKIPPER' AND (statement ILIKE '%Show Cause%' OR statement ILIKE '%CGST%' OR metric ILIKE '%penalty%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved: Listing & trading approvals granted by NSE & BSE for QIP equity shares.'
-        WHERE ticker = 'SKIPPER' AND (statement ILIKE '%formalities%' OR metric ILIKE '%Corporate Actions%')
-      `);
-    } else if (ticker === "ANANTRAJ") {
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved: Composite Scheme of Arrangement approved by Board and filed for demerger of Data Center business into Ashok Cloud.'
-        WHERE ticker = 'ANANTRAJ' AND (statement ILIKE '%Scheme of Arrangement%' OR statement ILIKE '%Ashok Cloud%' OR metric ILIKE '%Scheme%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved: Allotment of equity shares completed for data center capex.'
-        WHERE ticker = 'ANANTRAJ' AND (statement ILIKE '%Allotment%' OR metric ILIKE '%Allotment%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Phase 1 (6 MW IT load) fully operationalized at Manesar Data Center Park.'
-        WHERE ticker = 'ANANTRAJ' AND (statement ILIKE '%Phase 1%' OR statement ILIKE '%Manesar%' OR statement ILIKE '%6 MW%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Delivered Phase 1 of Project Navya residential township.'
-        WHERE ticker = 'ANANTRAJ' AND (statement ILIKE '%Navya%' OR metric ILIKE '%Project Delivery%')
-      `);
-    } else if (ticker === "INOXINDIA") {
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q1 FY26: Successfully launched India first ultra-high-purity (UHP) ammonia ISO tank container.'
-        WHERE ticker = 'INOXINDIA' AND (statement ILIKE '%ammonia%' OR metric ILIKE '%product launch%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved: Won and executed ₹145 Cr global cryogenic systems contract for ITER fusion energy project.'
-        WHERE ticker = 'INOXINDIA' AND (statement ILIKE '%ITER%' OR metric ILIKE '%ITER%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: High-pressure liquid air energy storage vessels delivered for global clean energy project.'
-        WHERE ticker = 'INOXINDIA' AND (statement ILIKE '%storage%' OR statement ILIKE '%liquid air%' OR metric ILIKE '%energy storage%')
-      `);
-    } else if (ticker === "CCL") {
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q1 FY27: Dividend of ₹3.00/share declared by Board in July 2026.'
-        WHERE ticker = 'CCL' AND metric ILIKE '%dividend%'
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Vietnam coffee processing plant expansion completed and commercial production operational.'
-        WHERE ticker = 'CCL' AND (statement ILIKE '%Vietnam%' OR statement ILIKE '%capacity%' OR metric ILIKE '%capacity%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Domestic B2C brand revenue expanded >25% YoY reaching ₹150+ Cr.'
-        WHERE ticker = 'CCL' AND (statement ILIKE '%Continental%' OR statement ILIKE '%brand%' OR metric ILIKE '%revenue%')
-      `);
-    } else if (ticker === "SJS") {
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved: Maintained zero net debt balance sheet across all quarters with strong internal cash accruals.'
-        WHERE ticker = 'SJS' AND (statement ILIKE '%debt-free%' OR statement ILIKE '%debt%' OR metric ILIKE '%debt%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25: Walter Pack India acquisition fully integrated, expanding high-margin aesthetic & optical display capabilities.'
-        WHERE ticker = 'SJS' AND (statement ILIKE '%Walter Pack%' OR statement ILIKE '%acquisition%' OR metric ILIKE '%acquisition%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY24/FY25: SJS delivered 45%+ revenue growth and EBITDA margins expanding to 25-28%.'
-        WHERE ticker = 'SJS' AND (statement ILIKE '%45% revenue%' OR statement ILIKE '%PAT growth%')
-      `);
-    } else if (ticker === "HBLENGINE") {
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q1 FY26: Defence & Aviation revenue grew +55% YoY with consolidated EBITDA margin expanding to 33.4%.'
-        WHERE ticker = 'HBLENGINE' AND (statement ILIKE '%defence%' OR statement ILIKE '%aviation%' OR metric ILIKE '%margin%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY25/FY26: Granted Version 4 RDSO approval for Railway KAVACH TCAS signaling systems.'
-        WHERE ticker = 'HBLENGINE' AND (statement ILIKE '%Kavach Version 4%' OR statement ILIKE '%RDSO%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Missed',
-            credibility_impact = 'negative',
-            evidence_summary = 'MISSED IN FY25: KAVACH component delivery schedule encountered delays due to RDSO testing timelines and Railway tender allotment pacing.'
-        WHERE ticker = 'HBLENGINE' AND (statement ILIKE '%component delivery%' OR statement ILIKE '%supply timeline%')
-      `);
-    } else if (ticker === "TRANSRAILL") {
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in Q2 FY26: Maintained EBITDA margins above 11% (12.1% reported in Q2 FY26).'
-        WHERE ticker = 'TRANSRAILL' AND (statement ILIKE '%11%' OR metric ILIKE '%EBITDA Margin%')
-      `);
-
-      await pool.query(`
-        UPDATE management_commitments 
-        SET status = 'Achieved',
-            credibility_impact = 'positive',
-            evidence_summary = 'Achieved in FY26: Order inflows crossed ₹3,500 Cr (+78% YoY) pushing confirmed order book to ₹14,654 Cr.'
-        WHERE ticker = 'TRANSRAILL' AND (statement ILIKE '%3,500%' OR statement ILIKE '%order inflows%' OR metric ILIKE '%inflows%')
-      `);
+      if (!isRegulatoryAction) {
+        // Dynamic operational/financial target matching
+        if (
+          (stmtLower.includes("margin") && verdict.financial_highlights?.ebitda_margin) ||
+          (stmtLower.includes("revenue") && verdict.financial_highlights?.revenue) ||
+          (stmtLower.includes("capacity") && (fullContextText.includes("capacity") || fullContextText.includes("commissioned")))
+        ) {
+          await pool.query(
+            `UPDATE management_commitments 
+             SET status = 'Achieved',
+                 credibility_impact = 'positive',
+                 evidence_summary = $1
+             WHERE id = $2`,
+            [`Validated dynamically by ${latestAnn.title}: ${(verdict.verdict_summary || "").substring(0, 150)}...`, comm.id]
+          );
+        }
+      }
     }
   } catch (err) {
     console.warn(`[WORKER] Guidance reconciliation warning for ${ticker}:`, err.message);

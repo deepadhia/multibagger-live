@@ -168,7 +168,7 @@ export function extractDeterministicFinancials(pdfText = "") {
     }
   }
 
-  // 3. Consolidated PAT attributable to Owners
+  // 4. Consolidated PAT & Exceptional Items Engine
   const patNumbers = parseRowNumbers(/(?:net\s+profit\s+for\s+the\s+period|profit\s+attributable\s+to\s+owners|profit\s+after\s+tax)/i);
   if (patNumbers && patNumbers.length >= 1) {
     result.patAttributable = patNumbers[0];
@@ -180,6 +180,27 @@ export function extractDeterministicFinancials(pdfText = "") {
       if (result.patYoYGrowthPct < -5.0) {
         result.isYoYDecline = true;
       }
+    }
+  }
+
+  // Exceptional Items & Normalised PAT Computation (Fully Dynamic)
+  let exceptionalDescription = null;
+  const excNumbers = parseRowNumbers(/(?:exceptional\s+item|exceptional\s+gain|profit\s+on\s+sale\s+of\s+asset|non-recurring\s+gain)/i);
+  if (excNumbers && excNumbers.length >= 1) {
+    result.exceptionalGain = excNumbers[0];
+  }
+
+  const excLineMatch = fullText.match(/(?:exceptional\s+(?:item|gain)|profit\s+on\s+sale\s+of\s+[^\n.,]+)/i);
+  if (excLineMatch) {
+    exceptionalDescription = excLineMatch[0].trim();
+  }
+  result.exceptionalDescription = exceptionalDescription;
+
+  if (result.patConsolidated !== null && result.exceptionalGain !== null) {
+    result.normalisedPat = parseFloat((result.patConsolidated - result.exceptionalGain).toFixed(2));
+    if (patNumbers && patNumbers.length >= 3 && patNumbers[2] > 0) {
+      const prevPat = patNumbers[2];
+      result.normalisedPatYoYGrowthPct = parseFloat((((result.normalisedPat - prevPat) / prevPat) * 100).toFixed(1));
     }
   }
 

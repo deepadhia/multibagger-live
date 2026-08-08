@@ -41,8 +41,8 @@ export async function reconcileInterQuarterEvents(ticker, dryRun = true) {
       let isMatch = false;
       let matchReason = '';
 
-      // Match Order Wins (e.g. Skipper May 2026 ₹1,265 Cr order win, HBL CLW ₹1,714 Cr order win)
-      if (ev.event_type === 'ORDER_WIN' && (combinedText.includes('order') || combinedText.includes('kavach') || combinedText.includes('po'))) {
+      // Match Order Wins (e.g. Order Wins, Contracts, Purchase Orders)
+      if (ev.event_type === 'ORDER_WIN' && (combinedText.includes('order') || combinedText.includes('contract') || combinedText.includes('po') || combinedText.includes('work'))) {
         if (ev.value_in_cr && ev.value_in_cr > 0) {
           isMatch = true;
           matchReason = `Matched SEBI Reg 30 Order Win: ₹${ev.value_in_cr} Cr from ${ev.counterparty || 'Exchange Disclosure'}`;

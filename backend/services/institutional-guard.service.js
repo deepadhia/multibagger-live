@@ -155,6 +155,29 @@ export function applyInstitutionalGuard(llmOutput = {}, financialData = null, ti
       }
     }
 
+    // D. Mandatory Exceptional Gain & Normalised PAT Guard Injection (100% Dynamic)
+    if (financialData.exceptionalGain !== null && financialData.exceptionalGain > 0) {
+      const desc = financialData.exceptionalDescription || "one-time non-operational gain";
+      const normPatStr = financialData.normalisedPat !== null ? `₹${financialData.normalisedPat} Cr` : "N/A";
+      const normYoYStr = (financialData.normalisedPatYoYGrowthPct !== null && financialData.normalisedPatYoYGrowthPct !== undefined) 
+        ? `${financialData.normalisedPatYoYGrowthPct > 0 ? '+' : ''}${financialData.normalisedPatYoYGrowthPct}% YoY` 
+        : 'normalised PAT';
+      const excNote = `⚠️ EXCEPTIONAL ITEM DISCLOSURE: Reported PAT of ₹${financialData.patConsolidated} Cr includes a one-time gain of ₹${financialData.exceptionalGain} Cr (${desc}). Normalised PAT is ${normPatStr} (${normYoYStr}).`;
+      
+      if (!summaryText.includes("Exceptional Item") && !summaryText.includes("Normalised PAT")) {
+        summaryText = `${summaryText} ${excNote}`.trim();
+      }
+
+      if (guarded.financial_highlights) {
+        guarded.financial_highlights.exceptional_gain_post_tax = `₹${financialData.exceptionalGain} Cr (${desc})`;
+        guarded.financial_highlights.normalised_pat = `${normPatStr} (${normYoYStr})`;
+      }
+
+      if (guarded.key_drivers && Array.isArray(guarded.key_drivers)) {
+        guarded.key_drivers.unshift(`⚠️ EXCEPTIONAL GAIN: Reported PAT includes ₹${financialData.exceptionalGain} Cr one-time gain. Normalised PAT: ${normPatStr} (${normYoYStr})`);
+      }
+    }
+
     // Generic Unverified QoQ Claim Stripper (strips any arbitrary LLM QoQ percentage claim)
     const stripErroneousQoQ = (txt) => {
       if (typeof txt !== "string") return txt;
@@ -200,9 +223,16 @@ export function applyInstitutionalGuard(llmOutput = {}, financialData = null, ti
     }
 
     // Stacked-Condition Conviction Calibration Ceiling Rule:
-    // 1. Moderate Revenue Growth (< 15% YoY) -> ceiling 8/10
-    // 2. Pending Demerger / NCLT Regulatory Approval -> ceiling 7/10
-    // 3. Both conditions true -> ceiling 7/10 ADD
+    // 1. Material Exceptional Gain (> 20% of reported PAT) -> ceiling 7/10 (prevents false high-conviction on distorted PAT)
+    // 2. Moderate Revenue Growth (< 15% YoY) -> ceiling 8/10
+    // 3. Pending Demerger / NCLT Regulatory Approval -> ceiling 7/10
+    // 4. Stacked conditions -> ceiling 7/10 ADD
+    const hasMaterialExceptionalGain = 
+      financialData.exceptionalGain !== null && 
+      financialData.patConsolidated !== null && 
+      financialData.patConsolidated > 0 &&
+      (financialData.exceptionalGain / financialData.patConsolidated) > 0.20;
+
     const isModerateRevenueGrowth = financialData.revenueYoYGrowthPct !== null && financialData.revenueYoYGrowthPct < 15.0;
     const hasPendingRegulatoryCommitments = guarded.commitments && guarded.commitments.some(c => 
       c.status === "Pending" && 
@@ -210,6 +240,10 @@ export function applyInstitutionalGuard(llmOutput = {}, financialData = null, ti
     );
 
     if (!financialData.isYoYDecline) {
+      if (hasMaterialExceptionalGain) {
+        rawScore = Math.min(rawScore, 7); // Exceptional gain > 20% of PAT distorts headline -> 7/10 ADD
+        if (rawSignal === "STRONG BUY") rawSignal = "ADD";
+      }
       if (isModerateRevenueGrowth && hasPendingRegulatoryCommitments) {
         rawScore = Math.min(rawScore, 7); // Stacked constraint: 7/10
         rawSignal = "ADD";
