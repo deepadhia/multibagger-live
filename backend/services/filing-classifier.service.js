@@ -231,7 +231,14 @@ export async function extractCorporateActionDetails(category, ticker, announceme
     return null;
   }
 
-  const prompt = getCategoryPrompt(category, ticker, announcementText, investmentThesis);
+  // Cap text to 12,000 chars (head + tail) for NIM API timeout safety
+  let cappedText = announcementText || "";
+  if (cappedText.length > 12000) {
+    const half = 6000;
+    cappedText = `${cappedText.substring(0, half)}\n\n[... TRUNCATED MIDDLE CONTENT FOR NIM RATE LIMIT SAFETY ...]\n\n${cappedText.substring(cappedText.length - half)}`;
+  }
+
+  const prompt = getCategoryPrompt(category, ticker, cappedText, investmentThesis);
   const MAX_RETRIES = 2;
   const BASE_DELAY_MS = 2000;
 
