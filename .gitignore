@@ -15,6 +15,7 @@ dist-ssr
 # Downloaded transcript/filing PDFs (node downloader output)
 data_node/
 data/
+graphify-out/
 
 # Environment files (never commit real secrets)
 .env
@@ -28,6 +29,7 @@ node_downloader/.env
 backend/secrets/
 backend/services/*.json
 backend/scratch
+scratch/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

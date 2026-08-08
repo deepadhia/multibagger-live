@@ -249,3 +249,79 @@ export async function refreshAnnouncementsHandler(req, res) {
     return res.status(500).json({ ok: false, error: err.message });
   }
 }
+
+/**
+ * GET /api/stocks/:id/syntheses
+ * Returns the 4 Institutional Synthesis Reports + quarterly filing verdicts for a stock.
+ */
+export async function getSynthesesHandler(req, res) {
+  try {
+    const { id } = req.params;
+
+    const stockRes = await pool.query("SELECT ticker FROM stocks WHERE id = $1", [id]);
+    if (stockRes.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Stock not found" });
+    }
+    const { ticker } = stockRes.rows[0];
+
+    // 1. Fetch 4 Multi-Quarter Synthesis Reports
+    const { rows: syntheses } = await pool.query(
+      `SELECT prompt_name, prompt_title, report_content, updated_at 
+       FROM stock_syntheses WHERE stock_id = $1 ORDER BY prompt_name`,
+      [id]
+    );
+
+    // 2. Fetch Quarterly Filing Deep-Dive Verdicts
+    const { rows: quarterlyVerdicts } = await pool.query(
+      `SELECT id, title, filing_date, attachment_url, event_analysis 
+       FROM corporate_announcements 
+       WHERE stock_id = $1 AND deep_dive_status = 'completed' 
+       ORDER BY filing_date DESC`,
+      [id]
+    );
+
+    return res.json({
+      ok: true,
+      ticker,
+      syntheses,
+      quarterlyVerdicts
+    });
+  } catch (err) {
+    console.error("Get syntheses error:", err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+}
+
+/**
+ * POST /api/stocks/:id/generate-syntheses
+ * Triggers full multi-quarter synthesis generation using NVIDIA NIM LLM.
+ */
+export async function generateSynthesesHandler(req, res) {
+  try {
+    const { id } = req.params;
+
+    const stockRes = await pool.query("SELECT ticker FROM stocks WHERE id = $1", [id]);
+    if (stockRes.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Stock not found" });
+    }
+    const { ticker } = stockRes.rows[0];
+
+    const { generateInstitutionalSyntheses } = await import("../workers/quarterly-deepdive-worker.js");
+    await generateInstitutionalSyntheses(ticker);
+
+    const { rows: syntheses } = await pool.query(
+      `SELECT prompt_name, prompt_title, report_content, updated_at 
+       FROM stock_syntheses WHERE stock_id = $1 ORDER BY prompt_name`,
+      [id]
+    );
+
+    return res.json({
+      ok: true,
+      message: `Synthesis complete for ${ticker}`,
+      syntheses
+    });
+  } catch (err) {
+    console.error("Generate syntheses error:", err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+}

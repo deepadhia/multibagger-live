@@ -4,6 +4,7 @@ import {
   shouldProcessAnnouncement, 
   generateAnnouncementHash, 
   isAnnouncementProcessed,
+  isEventAlertRecentlySent,
   saveAnnouncement,
   updateStockResultDate,
   resetStuckPending,
@@ -14,6 +15,8 @@ import {
   getConcallType
 } from "../services/announcement.service.js";
 import { classifyAnnouncementWithNim } from "../services/nim.service.js";
+import { classifyFilingCategory, extractCorporateActionDetails } from "../services/filing-classifier.service.js";
+import { processPendingDeepDives } from "../workers/quarterly-deepdive-worker.js";
 import { sendAnnouncementAlert, sendRunSummary, sendTelegramMessage, buildBseDocumentUrl } from "../services/telegram.service.js";
 import { pool } from "../db/pool.js";
 
@@ -246,17 +249,47 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           aiResult.is_earnings_release = false;
         }
 
-        // 6d. Build finalSummary with AGM highlights
-        let finalSummary = aiResult.summary;
-        if (aiResult.is_agm && aiResult.agm_status === "completed" && aiResult.agm_highlights) {
-          finalSummary += `\n\nAGM Highlights:\n${aiResult.agm_highlights}`;
+        // 6e. Specialized Filing Category Classification & Detail Extraction
+        const filingCategory = classifyFilingCategory(title, announcementText);
+        let eventAnalysis = null;
+        if (filingCategory !== "GENERAL") {
+          eventAnalysis = await extractCorporateActionDetails(filingCategory, ticker, announcementText, stock.investment_thesis);
         }
-        const isAgmCompleted = aiResult.is_agm && aiResult.agm_status === "completed";
 
-        // 7. Alert if High Priority or Earnings Release or Concall/Transcript or Completed AGM
-        let sentToTelegram = false;
+        // Determine deep_dive_status queue state for Quarterly Engine
+        let deepDiveStatus = "not_required";
         const concallType = getConcallType(title, announcementText);
-        if (concallType || aiResult.is_earnings_release || isAgmCompleted || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL")) {
+        if (aiResult.is_earnings_release || filingCategory === "QUARTERLY_EARNINGS") {
+          deepDiveStatus = "pending_stage1";
+        } else if (concallType === "transcript") {
+          // If transcript arrives, check if Stage 1 already ran for this stock
+          const prevCompleted = await pool.query(
+            "SELECT id FROM corporate_announcements WHERE ticker = $1 AND deep_dive_status = 'completed' LIMIT 1",
+            [ticker]
+          );
+          deepDiveStatus = prevCompleted.rows.length > 0 ? "pending_stage2" : "pending_stage1";
+        }
+
+        // 7. Alert if High Priority or Earnings Release or Concall/Transcript or Completed AGM or Regulatory/Credit event
+        let sentToTelegram = false;
+        const isRegulatoryOrCredit = ["REGULATORY_ACTION", "CREDIT_EVENT"].includes(filingCategory);
+        const shouldHaveAlerted = concallType || aiResult.is_earnings_release || isAgmCompleted || isRegulatoryOrCredit || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL");
+
+        // 7a. Event-level Deduplication Guard (Check if alert sent recently for same ticker & event type/doc URL)
+        let isDuplicateEvent = false;
+        if (shouldHaveAlerted && (concallType || aiResult.is_earnings_release || docUrl)) {
+          isDuplicateEvent = await isEventAlertRecentlySent({
+            ticker,
+            concall_type: concallType,
+            is_earnings_release: aiResult.is_earnings_release,
+            attachment_url: docUrl
+          });
+          if (isDuplicateEvent) {
+            console.log(`[SKIP DUP] Event alert already sent for ${ticker} (${concallType ? 'concall:'+concallType : (aiResult.is_earnings_release ? 'earnings' : 'doc')}). Skipping duplicate Telegram alert.`);
+          }
+        }
+
+        if (shouldHaveAlerted && !isDuplicateEvent) {
           if (alertsSent >= MAX_ALERTS_PER_RUN) {
             // Save as 'pending' so the next scheduled run re-evaluates it — never permanently drop.
             console.warn(`[LIMIT] Max alerts reached. Saving ${ticker} announcement as 'pending' for next run.`);
@@ -296,14 +329,9 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
         }
 
         // 8. Save to DB
-        // status logic:
-        //   'sent'    → alert fired to Telegram
-        //   'pending' → alert was capped (MAX_ALERTS_PER_RUN hit); re-evaluated next run
-        //   'ignored' → AI classified as LOW/MEDIUM neutral; genuinely not noteworthy
-        const shouldHaveAlerted = concallType || aiResult.is_earnings_release || isAgmCompleted || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL");
         const dbStatus = sentToTelegram
           ? "sent"
-          : (shouldHaveAlerted && alertsSent >= MAX_ALERTS_PER_RUN ? "pending" : "ignored");
+          : (shouldHaveAlerted && !isDuplicateEvent && alertsSent >= MAX_ALERTS_PER_RUN ? "pending" : "ignored");
 
         await saveAnnouncement({
           stock_id: stock.id,
@@ -320,7 +348,10 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           sent_to_telegram: sentToTelegram,
           is_earnings_release: aiResult.is_earnings_release || false,
           attachment_url: docUrl,
-          filing_date: timestamp
+          filing_date: timestamp,
+          filing_category: filingCategory,
+          event_analysis: eventAnalysis,
+          deep_dive_status: deepDiveStatus
         });
 
         // 9. Update Result Date if found
@@ -334,6 +365,16 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
   }
 
   console.log("Scan complete.");
+
+  // Trigger queued quarterly deep-dives
+  try {
+    if (!isDryRun) {
+      console.log("[SCAN] Triggering queued quarterly deep-dives...");
+      await processPendingDeepDives();
+    }
+  } catch (err) {
+    console.error("[SCAN WARN] Deep-dive worker execution failed:", err.message);
+  }
 
   // ── End-of-run summary to Telegram ───────────────────────────────────────
   const durationMs = Date.now() - startTime;

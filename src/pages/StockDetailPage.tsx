@@ -15,6 +15,7 @@ import { ToneBadge } from "@/components/ToneBadge";
 import { InvestmentThesisEditor } from "@/components/InvestmentThesisEditor";
 import { PromisesTab } from "@/components/PromisesTab";
 import { SnapshotsTab } from "@/components/SnapshotsTab";
+import { InstitutionalReportsTab } from "@/components/InstitutionalReportsTab";
 import { CopyGeminiPrompt } from "@/components/CopyGeminiPrompt";
 import { InstitutionalPromptsTab } from "@/components/InstitutionalPromptsTab";
 import { ImportGeminiResponse } from "@/components/ImportGeminiResponse";
@@ -780,38 +781,24 @@ export default function StockDetailPage() {
         <Tabs defaultValue="overview" className="w-full min-w-0">
           <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] rounded-md [scrollbar-width:thin]">
             <TabsList className="bg-card border border-border inline-flex w-max min-w-full flex-nowrap justify-start gap-0.5 h-auto min-h-10 p-1 [&>*]:shrink-0">
-            <TabsTrigger value="overview" className="font-mono text-xs gap-1.5">
-              <BarChart3 className="h-3 w-3" /> Overview
-            </TabsTrigger>
-            <TabsTrigger value="financials" className="font-mono text-xs gap-1.5">
-              <Activity className="h-3 w-3" /> Financials
-            </TabsTrigger>
-            {totalCommitments > 0 && (
-              <TabsTrigger value="commitments" className="font-mono text-xs gap-1.5">
-                <Shield className="h-3 w-3" /> Commitments
+              <TabsTrigger value="promises" className="font-mono text-xs gap-1.5 font-bold text-primary">
+                <Target className="h-3.5 w-3.5" /> Promises &amp; Guidance
               </TabsTrigger>
-            )}
-            <TabsTrigger value="promises" className="font-mono text-xs gap-1.5">
-              <Target className="h-3 w-3" /> Promises
-            </TabsTrigger>
-            <TabsTrigger value="snapshots" className="font-mono text-xs gap-1.5">
-              <FileText className="h-3 w-3" /> Snapshots
-            </TabsTrigger>
-            <TabsTrigger value="deals" className="font-mono text-xs gap-1.5">
-              <Briefcase className="h-3 w-3" /> Deals
-            </TabsTrigger>
-            <TabsTrigger value="timeline" className="font-mono text-xs gap-1.5">
-              <TrendingUp className="h-3 w-3" /> Timeline
-            </TabsTrigger>
-            <TabsTrigger value="announcements" className="font-mono text-xs gap-1.5">
-              <FileText className="h-3 w-3" /> Announcements
-            </TabsTrigger>
-            <TabsTrigger value="quarterly" className="font-mono text-xs gap-1.5">
-              <PieChart className="h-3 w-3" /> Quarterly Metrics
-            </TabsTrigger>
-            <TabsTrigger value="institutional-prompts" className="font-mono text-xs gap-1.5">
-              <BrainCircuit className="h-3 w-3" /> Institutional Prompts
-            </TabsTrigger>
+              <TabsTrigger value="snapshots" className="font-mono text-xs gap-1.5">
+                <FileText className="h-3.5 w-3.5" /> Institutional Verdicts
+              </TabsTrigger>
+              <TabsTrigger value="overview" className="font-mono text-xs gap-1.5">
+                <BarChart3 className="h-3.5 w-3.5" /> Thesis &amp; Overview
+              </TabsTrigger>
+              <TabsTrigger value="financials" className="font-mono text-xs gap-1.5">
+                <Activity className="h-3.5 w-3.5" /> Financials &amp; Metrics
+              </TabsTrigger>
+              <TabsTrigger value="announcements" className="font-mono text-xs gap-1.5">
+                <Newspaper className="h-3.5 w-3.5" /> Announcements &amp; Deals
+              </TabsTrigger>
+              <TabsTrigger value="institutional-prompts" className="font-mono text-xs gap-1.5">
+                <BrainCircuit className="h-3.5 w-3.5" /> Prompt Strategy
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -1318,70 +1305,7 @@ export default function StockDetailPage() {
 
           {/* ═══ COMMITMENTS TAB ═══ */}
           <TabsContent value="commitments" className="space-y-4 mt-4">
-            {commitments && commitments.length > 0 ? (
-              <>
-                <Card className="p-4 bg-card border-border card-glow">
-                  <div className="flex items-center gap-6">
-                    <div className="text-center min-w-[100px]">
-                      <p className={`text-4xl font-mono font-bold ${
-                        (credibility ?? 0) >= 70 ? "text-terminal-green" : (credibility ?? 0) >= 40 ? "text-terminal-amber" : "text-terminal-red"
-                      }`}>
-                        {credibility ?? 0}%
-                      </p>
-                      <p className="text-[10px] text-muted-foreground font-mono mt-1">Credibility Score</p>
-                    </div>
-                    <div className="flex-1 space-y-2">
-                      <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
-                        <span>{achievedCount} Achieved</span>
-                        <span>{commitments.filter(c => c.status === "Missed").length} Missed</span>
-                        <span>{commitments.filter(c => c.status === "Pending").length} Pending</span>
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden flex">
-                        <div className="h-full bg-terminal-green" style={{ width: `${totalCommitments > 0 ? (achievedCount / totalCommitments) * 100 : 0}%` }} />
-                        <div className="h-full bg-terminal-red" style={{ width: `${totalCommitments > 0 ? (commitments.filter(c => c.status === "Missed").length / totalCommitments) * 100 : 0}%` }} />
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                <Card className="p-4 bg-card border-border card-glow overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full data-grid">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Quarter</th>
-                          <th className="text-left p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Commitment</th>
-                          <th className="text-left p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Metric</th>
-                          <th className="text-left p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Target</th>
-                          <th className="text-left p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Timeline</th>
-                          <th className="text-center p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {commitments.map((c) => (
-                          <tr key={c.id} className="border-b border-border/50 hover:bg-muted/30">
-                            <td className="p-2 text-foreground font-mono text-xs">{c.quarter}</td>
-                            <td className="p-2 text-foreground text-xs max-w-[300px]">{c.statement}</td>
-                            <td className="p-2 text-muted-foreground text-xs">{c.metric || "—"}</td>
-                            <td className="p-2 text-muted-foreground text-xs font-mono">{c.target_value || "—"}</td>
-                            <td className="p-2 text-muted-foreground text-xs">{c.timeline || "—"}</td>
-                            <td className="p-2 text-center">
-                              <Badge variant="outline" className={`font-mono text-[10px] ${
-                                c.status === "Achieved" ? "text-terminal-green border-terminal-green/30 bg-terminal-green/10" :
-                                c.status === "Missed" ? "text-terminal-red border-terminal-red/30 bg-terminal-red/10" :
-                                "text-terminal-amber border-terminal-amber/30 bg-terminal-amber/10"
-                              }`}>{c.status}</Badge>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
-              </>
-            ) : (
-              <EmptyState text="No commitments tracked yet. Analyze a transcript to extract management commitments." />
-            )}
+            <PromisesTab stockId={id!} />
           </TabsContent>
 
           {/* ═══ PROMISES TAB ═══ */}
@@ -1389,9 +1313,9 @@ export default function StockDetailPage() {
             <PromisesTab stockId={id!} />
           </TabsContent>
 
-          {/* ═══ SNAPSHOTS TAB ═══ */}
+          {/* ═══ INSTITUTIONAL VERDICTS TAB ═══ */}
           <TabsContent value="snapshots" className="space-y-4 mt-4">
-            <SnapshotsTab stockId={id!} />
+            <InstitutionalReportsTab stockId={id!} ticker={stock.ticker} />
           </TabsContent>
 
           {/* ═══ DEALS TAB ═══ */}

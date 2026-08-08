@@ -195,13 +195,33 @@ export async function sendAnnouncementAlert({
     message += `📊 *Key Data & Metrics*\n${key_data}\n\n`;
   }
 
-  // ── Investment Thesis / Risk ──────────────────────────────────────────────
+  // ── Investment Thesis & Falsification Audit ────────────────────────────────
   if (deep_dive_indicator) {
     message += `🔍 *Investment Context*\n${deep_dive_indicator}\n\n`;
   }
 
-  // ── Meta info ─────────────────────────────────────────────────────────────
-  message += `🎯 *AI Confidence:* ${confidenceBadge}\n`;
+  if (params.thesis_drift_state) {
+    const driftEmoji = params.thesis_drift_state === 'NONE' ? '🟢' : params.thesis_drift_state === 'EMERGING' ? '🟡' : '🔴';
+    message += `🛡️ *Thesis Drift Audit:* ${driftEmoji} *${params.thesis_drift_state}*\n`;
+    if (params.root_cause) message += `🧩 *Root Cause:* ${params.root_cause}\n`;
+    if (params.recovery_state) message += `🔄 *Recovery State:* ${params.recovery_state}\n\n`;
+  }
+
+  // ── Institutional Action Signal Banner (Concall-Aware & Guidance-Beat Fast Track) ──
+  const isCleanBeat = impact === 'POSITIVE' && priority === 'HIGH';
+  
+  if (is_earnings_release && !concall_type && !isCleanBeat) {
+    message += `🎯 *ACTION SIGNAL:* ⏳ *WAIT FOR CONCALL TRANSCRIPT*\n`;
+    message += `_Raw financial tables ingested. Full thesis verdict pending concall audit._\n`;
+  } else if (params.final_action) {
+    const actionUpper = params.final_action.toUpperCase();
+    const actionEmoji = actionUpper.includes('BUY') || actionUpper.includes('ACCUMULATE') ? '🟢' : actionUpper.includes('HOLD') ? '🟡' : '🔴';
+    message += `🎯 *ACTION SIGNAL:* ${actionEmoji} *${actionUpper}*\n`;
+  } else if (isCleanBeat) {
+    message += `🎯 *ACTION SIGNAL:* 🟢 *BUY MORE / ACCUMULATE (Clean Guidance Beat)*\n`;
+  } else {
+    message += `🎯 *AI Confidence:* ${confidenceBadge}\n`;
+  }
 
   // ── Next Results Date ─────────────────────────────────────────────────────
   if (result_date) {

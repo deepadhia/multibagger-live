@@ -47,6 +47,12 @@ export function normalizeTitle(title) {
   
   // Remove common noisy phrases and prefixes
   const noise = [
+    "analysts/institutional investor meet/con. call updates",
+    "analysts/institutional investor meet",
+    "intimation of schedule of analyst / institutional investor meeting",
+    "intimation of schedule of analyst / investor meeting",
+    "intimation of audio recording", "submission of audio recording",
+    "intimation of transcript", "submission of transcript",
     "intimation of ", "updates on ", "copy of ", "general updates - ", 
     "outcome of ", "disclosure under ", "corporate announcement - ",
     "regulation 30 - ", "press release - ", "announcement regarding ",
@@ -65,7 +71,7 @@ export function normalizeTitle(title) {
   // Remove excessive whitespace
   t = t.replace(/\s+/g, " ").trim();
   
-  return t;
+  return t || title.toLowerCase().trim();
 }
 
 /**
@@ -450,6 +456,67 @@ export async function isAnnouncementProcessed(ticker, sourceId, titleHash) {
   return result.rows.length > 0;
 }
 
+/**
+ * Checks if a Telegram alert for a specific event type (concall stage or earnings release)
+ * or exact document URL has ALREADY been sent for this ticker within the last 24 hours.
+ * Prevents duplicate alerts when NSE and BSE publish slightly different titles or IDs for the same event.
+ */
+export async function isEventAlertRecentlySent({ ticker, concall_type, is_earnings_release, attachment_url }) {
+  if (!ticker) return false;
+
+  // 1. Check attachment URL matching first if present
+  if (attachment_url) {
+    const filename = attachment_url.split('/').pop()?.split('?')[0];
+    if (filename && filename.length > 8) {
+      const res = await pool.query(
+        `SELECT id FROM corporate_announcements 
+         WHERE ticker = $1 
+           AND sent_to_telegram = true 
+           AND attachment_url ILIKE $2 
+           AND processed_at > NOW() - interval '24 hours'`,
+        [ticker, `%${filename}%`]
+      );
+      if (res.rows.length > 0) return true;
+    }
+  }
+
+  // 2. Earnings Release deduplication check (1 release alert per ticker per 24 hours)
+  if (is_earnings_release) {
+    const res = await pool.query(
+      `SELECT id FROM corporate_announcements 
+       WHERE ticker = $1 
+         AND sent_to_telegram = true 
+         AND is_earnings_release = true 
+         AND processed_at > NOW() - interval '24 hours'`,
+      [ticker]
+    );
+    if (res.rows.length > 0) return true;
+  }
+
+  // 3. Concall Stage deduplication check (1 alert per concall_type stage per ticker per 24 hours)
+  if (concall_type) {
+    let typeKeyword = concall_type;
+    if (concall_type === 'audio') typeKeyword = 'audio';
+    else if (concall_type === 'transcript') typeKeyword = 'transcript';
+
+    const res = await pool.query(
+      `SELECT id FROM corporate_announcements 
+       WHERE ticker = $1 
+         AND sent_to_telegram = true 
+         AND (
+           title ILIKE $2 
+           OR summary ILIKE $2 
+           OR raw_text ILIKE $2
+         ) 
+         AND processed_at > NOW() - interval '24 hours'`,
+      [ticker, `%${typeKeyword}%`]
+    );
+    if (res.rows.length > 0) return true;
+  }
+
+  return false;
+}
+
 
 /**
  * Saves a processed announcement to the database.
@@ -457,12 +524,13 @@ export async function isAnnouncementProcessed(ticker, sourceId, titleHash) {
  * it is promoted to 'sent' or 'ignored' so it isn't evaluated again.
  */
 export async function saveAnnouncement({
-  stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, attachment_url, filing_date
+  stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, attachment_url, filing_date,
+  filing_category = "GENERAL", event_analysis = null, deep_dive_status = "not_required"
 }) {
   await pool.query(
     `INSERT INTO corporate_announcements 
-      (stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, processed_at, attachment_url, filing_date)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15)
+      (stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, processed_at, attachment_url, filing_date, filing_category, event_analysis, deep_dive_status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $17, $18)
      ON CONFLICT (ticker, source_id) DO UPDATE
        SET status = CASE
              -- Promote if currently pending (capped mid-run) OR failed (NIM outage, now recovered)
@@ -473,12 +541,19 @@ export async function saveAnnouncement({
              WHEN corporate_announcements.status IN ('pending', 'failed') THEN EXCLUDED.sent_to_telegram
              ELSE corporate_announcements.sent_to_telegram
            END,
+           filing_category = EXCLUDED.filing_category,
+           event_analysis = COALESCE(EXCLUDED.event_analysis, corporate_announcements.event_analysis),
+           deep_dive_status = CASE
+             WHEN corporate_announcements.deep_dive_status = 'completed' AND EXCLUDED.deep_dive_status = 'pending_stage2' THEN 'pending_stage2'
+             WHEN corporate_announcements.deep_dive_status IN ('not_required', 'failed') THEN EXCLUDED.deep_dive_status
+             ELSE corporate_announcements.deep_dive_status
+           END,
            processed_at = CASE
              WHEN corporate_announcements.status IN ('pending', 'failed') THEN NOW()
              ELSE corporate_announcements.processed_at
            END
     `,
-    [stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, attachment_url, filing_date]
+    [stock_id, ticker, source_id, title_hash, title, raw_text, priority, impact, confidence, summary, status, sent_to_telegram, is_earnings_release, attachment_url, filing_date, filing_category, event_analysis ? JSON.stringify(event_analysis) : null, deep_dive_status]
   ).catch(err => {
     // Silently handle title_hash unique constraint violations (cross-exchange dedup race).
     // These are not real errors — the announcement was already processed from the other exchange.

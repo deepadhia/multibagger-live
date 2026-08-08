@@ -142,6 +142,30 @@ export default function StocksPage() {
     }
   };
 
+  // Fetch management commitment stats per stock for sorting latest commitments on top
+  const { data: commitmentStats } = useQuery({
+    queryKey: ["commitment-stats-by-stock"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("management_commitments")
+        .select("stock_id, ticker, created_at");
+      if (error) throw error;
+      const statsMap = new Map<string, { count: number; maxTime: number }>();
+      (data || []).forEach((c) => {
+        const time = c.created_at ? new Date(c.created_at).getTime() : 0;
+        if (c.ticker) {
+          const existing = statsMap.get(c.ticker) || { count: 0, maxTime: 0 };
+          statsMap.set(c.ticker, { count: existing.count + 1, maxTime: Math.max(existing.maxTime, time) });
+        }
+        if (c.stock_id) {
+          const existing = statsMap.get(c.stock_id) || { count: 0, maxTime: 0 };
+          statsMap.set(c.stock_id, { count: existing.count + 1, maxTime: Math.max(existing.maxTime, time) });
+        }
+      });
+      return statsMap;
+    },
+  });
+
   const snapshotCtxByStockId = useMemo(() => {
     const map = new Map<string, ReturnType<typeof latestSnapshotQuarterContext>>();
     if (!stocks?.length) return map;
@@ -152,11 +176,29 @@ export default function StocksPage() {
     return map;
   }, [stocks, allSnapshots]);
 
-  /** Thesis tier → confidence on latest quarter, then snapshot count, then ticker. */
+  /** Latest stocks with management commitments on top, then thesis tier & confidence. */
   const sortedStocks = useMemo(() => {
     if (!stocks) return [];
     const counts = snapshotCounts || {};
     return [...stocks].sort((a, b) => {
+      const statsA = commitmentStats?.get(a.id) || commitmentStats?.get(a.ticker) || { count: 0, maxTime: 0 };
+      const statsB = commitmentStats?.get(b.id) || commitmentStats?.get(b.ticker) || { count: 0, maxTime: 0 };
+
+      // 1. Stocks with commitments come before stocks without commitments
+      if (statsA.count > 0 && statsB.count === 0) return -1;
+      if (statsA.count === 0 && statsB.count > 0) return 1;
+
+      // 2. Sort by latest commitment timestamp (newest on top)
+      if (statsA.count > 0 && statsB.count > 0) {
+        if (statsB.maxTime !== statsA.maxTime) {
+          return statsB.maxTime - statsA.maxTime;
+        }
+        if (statsB.count !== statsA.count) {
+          return statsB.count - statsA.count;
+        }
+      }
+
+      // 3. Fallback: Thesis tier → confidence on latest quarter, then snapshot count, then ticker
       const ca = snapshotCtxByStockId.get(a.id) ?? null;
       const cb = snapshotCtxByStockId.get(b.id) ?? null;
       if (ca && cb) {
@@ -170,7 +212,7 @@ export default function StocksPage() {
       if (cnb !== cna) return cnb - cna;
       return (a.ticker || "").localeCompare(b.ticker || "", undefined, { sensitivity: "base" });
     });
-  }, [stocks, snapshotCounts, snapshotCtxByStockId]);
+  }, [stocks, snapshotCounts, snapshotCtxByStockId, commitmentStats]);
 
   return (
     <DashboardLayout>

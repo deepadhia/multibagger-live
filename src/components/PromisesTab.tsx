@@ -2,230 +2,337 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useManagementPromises } from "@/hooks/useStocks";
-import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
-import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Trash2 } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
-const MOCK_PROMISES = [
-  { id: "mock-1", promise_text: "Achieve 25% revenue growth by Q2FY26", made_in_quarter: "Q3FY25", status: "pending", target_deadline: "Q2FY26", resolved_in_quarter: null },
-  { id: "mock-2", promise_text: "Reduce debt-to-equity below 0.5", made_in_quarter: "Q2FY25", status: "kept", target_deadline: "Q4FY25", resolved_in_quarter: "Q4FY25" },
-  { id: "mock-3", promise_text: "Launch new product line in domestic market", made_in_quarter: "Q1FY25", status: "broken", target_deadline: "Q3FY25", resolved_in_quarter: "Q3FY25" },
-  { id: "mock-4", promise_text: "Expand capacity by 30% at Hosur plant", made_in_quarter: "Q2FY25", status: "pending", target_deadline: "Q1FY26", resolved_in_quarter: null },
-  { id: "mock-5", promise_text: "Maintain OPM above 18%", made_in_quarter: "Q1FY25", status: "kept", target_deadline: null, resolved_in_quarter: "Q2FY25" },
-];
+import { useStockCommitments } from "@/hooks/useStocks";
+import { 
+  CheckCircle2, 
+  Clock, 
+  AlertTriangle, 
+  XCircle, 
+  Filter, 
+  ChevronDown, 
+  ChevronUp, 
+  ShieldCheck, 
+  TrendingUp, 
+  Info,
+  Calendar,
+  Target,
+  FileText
+} from "lucide-react";
 
 interface Props {
   stockId: string;
 }
 
 export function PromisesTab({ stockId }: Props) {
-  const { data: dbPromises } = useManagementPromises(stockId);
-  const promises = dbPromises && dbPromises.length > 0 ? dbPromises : MOCK_PROMISES;
-  const isMock = !dbPromises || dbPromises.length === 0;
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const [updating, setUpdating] = useState<string | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newPromise, setNewPromise] = useState({ promise_text: "", made_in_quarter: "", target_deadline: "" });
-  const [adding, setAdding] = useState(false);
+  const { data: dbCommitments, isLoading } = useStockCommitments(stockId);
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const kept = promises.filter(p => p.status === "kept").length;
-  const broken = promises.filter(p => p.status === "broken").length;
-  const pending = promises.filter(p => p.status === "pending").length;
-  const resolved = kept + broken;
-  const credibility = resolved > 0 ? Math.round((kept / resolved) * 100) : null;
+  const commitments = dbCommitments || [];
 
-  const handleStatusChange = async (id: string, newStatus: string, currentQuarter?: string) => {
-    if (isMock) { toast({ title: "Mock data", description: "Import real data first.", variant: "destructive" }); return; }
-    setUpdating(id);
-    try {
-      const update: Record<string, string | null> = { status: newStatus };
-      if (newStatus === "kept" || newStatus === "broken") {
-        update.resolved_in_quarter = currentQuarter || null;
-      } else {
-        update.resolved_in_quarter = null;
-      }
-      const { error } = await supabase.from("management_promises").update(update).eq("id", id);
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ["management-promises", stockId] });
-      toast({ title: "Status updated" });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setUpdating(null);
-    }
-  };
+  // Metrics computation
+  const total = commitments.length;
+  const achieved = commitments.filter((c) => c.status === "Achieved" || c.status === "kept").length;
+  const missed = commitments.filter((c) => c.status === "Missed" || c.status === "broken").length;
+  const delayed = commitments.filter((c) => c.status === "Delayed").length;
+  const pending = commitments.filter((c) => c.status === "Pending" || c.status === "pending").length;
 
-  const handleAdd = async () => {
-    if (!newPromise.promise_text || !newPromise.made_in_quarter) {
-      toast({ title: "Fill required fields", variant: "destructive" }); return;
-    }
-    setAdding(true);
-    try {
-      const { error } = await supabase.from("management_promises").insert({
-        stock_id: stockId,
-        promise_text: newPromise.promise_text,
-        made_in_quarter: newPromise.made_in_quarter,
-        target_deadline: newPromise.target_deadline || null,
-        status: "pending",
-      });
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ["management-promises", stockId] });
-      setNewPromise({ promise_text: "", made_in_quarter: "", target_deadline: "" });
-      setShowAdd(false);
-      toast({ title: "Promise added" });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setAdding(false);
-    }
-  };
+  const resolved = achieved + missed;
+  const credibilityRate = resolved > 0 ? Math.round((achieved / resolved) * 100) : total > 0 ? 100 : null;
 
-  const handleDelete = async (id: string) => {
-    if (isMock) return;
-    setUpdating(id);
-    try {
-      const { error } = await supabase.from("management_promises").delete().eq("id", id);
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ["management-promises", stockId] });
-      toast({ title: "Promise deleted" });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setUpdating(null);
+  // Credibility tier decision
+  let credibilityTier = "Tier 2 (Neutral)";
+  let tierColor = "text-amber-400 bg-amber-500/10 border-amber-500/20";
+  if (credibilityRate !== null) {
+    if (credibilityRate >= 80 && missed === 0) {
+      credibilityTier = "Tier 1 (High Track Record)";
+      tierColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+    } else if (missed > 2 || (credibilityRate < 50 && resolved > 0)) {
+      credibilityTier = "Tier 3 (High Risk / Overpromises)";
+      tierColor = "text-rose-400 bg-rose-500/10 border-rose-500/20";
     }
+  }
+
+  // Filtered commitments list
+  const filteredCommitments = commitments.filter((c) => {
+    if (filterStatus === "all") return true;
+    const s = c.status.toLowerCase();
+    if (filterStatus === "achieved") return s === "achieved" || s === "kept";
+    if (filterStatus === "missed") return s === "missed" || s === "broken";
+    if (filterStatus === "delayed") return s === "delayed";
+    if (filterStatus === "pending") return s === "pending";
+    return true;
+  });
+
+  const toggleExpand = (id: string) => {
+    setExpandedId(expandedId === id ? null : id);
   };
 
   return (
-    <div className="space-y-4">
-      {isMock && (
-        <Card className="p-3 bg-muted/50 border-border rounded">
-          <p className="text-xs text-muted-foreground">
-            <strong>Mock data shown.</strong> Import a Gemini analysis from the Transcripts page to populate real promises.
-          </p>
-        </Card>
-      )}
+    <div className="space-y-5 text-slate-200">
+      {/* Executive Credibility Overview Dashboard */}
+      <Card className="p-5 bg-gradient-to-br from-slate-900 via-slate-900/90 to-slate-800 border-slate-800 shadow-xl rounded-xl">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          
+          {/* Main Score Indicator */}
+          <div className="flex items-center gap-5">
+            <div className="relative flex items-center justify-center min-w-[90px] min-h-[90px] rounded-2xl bg-slate-950/80 border border-slate-800 p-3 shadow-inner">
+              <div className="text-center">
+                <span className={`text-3xl font-extrabold font-mono tracking-tight ${
+                  credibilityRate === null ? "text-slate-400" :
+                  credibilityRate >= 80 ? "text-emerald-400" :
+                  credibilityRate >= 50 ? "text-amber-400" : "text-rose-400"
+                }`}>
+                  {credibilityRate !== null ? `${credibilityRate}%` : "—"}
+                </span>
+                <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 mt-0.5">
+                  Track Record
+                </p>
+              </div>
+            </div>
 
-      {/* Credibility Score */}
-      <Card className="p-4 bg-card border-border card-glow">
-        <div className="flex items-center gap-6">
-          <div className="text-center min-w-[100px]">
-            <p className={`text-4xl font-mono font-bold ${
-              credibility === null ? "text-muted-foreground" :
-              credibility >= 70 ? "text-terminal-green" :
-              credibility >= 40 ? "text-terminal-amber" : "text-terminal-red"
-            }`}>
-              {credibility !== null ? `${credibility}%` : "—"}
-            </p>
-            <p className="text-[10px] text-muted-foreground font-mono mt-1">Credibility Score</p>
-          </div>
-          <div className="flex-1 space-y-2">
-            <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
-              <span className="text-terminal-green">{kept} Kept</span>
-              <span className="text-terminal-red">{broken} Broken</span>
-              <span className="text-terminal-amber">{pending} Pending</span>
-            </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden flex">
-              {resolved > 0 && (
-                <>
-                  <div className="h-full bg-terminal-green" style={{ width: `${(kept / promises.length) * 100}%` }} />
-                  <div className="h-full bg-terminal-red" style={{ width: `${(broken / promises.length) * 100}%` }} />
-                  <div className="h-full bg-terminal-amber" style={{ width: `${(pending / promises.length) * 100}%` }} />
-                </>
-              )}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className={`font-mono text-xs px-2.5 py-0.5 font-semibold ${tierColor}`}>
+                  <ShieldCheck className="w-3.5 h-3.5 mr-1 inline-block" />
+                  {credibilityTier}
+                </Badge>
+                <Badge variant="secondary" className="bg-slate-800 text-slate-300 font-mono text-xs">
+                  {total} Tracked Commitments
+                </Badge>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed max-w-md">
+                Institutional analysis of management guidance vs. reported quarterly financials across transcripts and disclosures.
+              </p>
             </div>
           </div>
+
+          {/* Detailed Status Breakdown Counters */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-slate-950/60 border border-slate-800/80 p-3 rounded-lg text-center min-w-[90px]">
+              <span className="text-xs font-semibold text-emerald-400 flex items-center justify-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Achieved
+              </span>
+              <p className="text-2xl font-bold font-mono text-emerald-400 mt-1">{achieved}</p>
+            </div>
+
+            <div className="bg-slate-950/60 border border-slate-800/80 p-3 rounded-lg text-center min-w-[90px]">
+              <span className="text-xs font-semibold text-amber-400 flex items-center justify-center gap-1">
+                <Clock className="w-3.5 h-3.5" /> Pending
+              </span>
+              <p className="text-2xl font-bold font-mono text-amber-400 mt-1">{pending}</p>
+            </div>
+
+            <div className="bg-slate-950/60 border border-slate-800/80 p-3 rounded-lg text-center min-w-[90px]">
+              <span className="text-xs font-semibold text-orange-400 flex items-center justify-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" /> Delayed
+              </span>
+              <p className="text-2xl font-bold font-mono text-orange-400 mt-1">{delayed}</p>
+            </div>
+
+            <div className="bg-slate-950/60 border border-slate-800/80 p-3 rounded-lg text-center min-w-[90px]">
+              <span className="text-xs font-semibold text-rose-400 flex items-center justify-center gap-1">
+                <XCircle className="w-3.5 h-3.5" /> Missed
+              </span>
+              <p className="text-2xl font-bold font-mono text-rose-400 mt-1">{missed}</p>
+            </div>
+          </div>
+
         </div>
       </Card>
 
-      {/* Add Promise */}
-      <div className="flex justify-end">
-        <Button variant="outline" size="sm" className="font-mono text-xs" onClick={() => setShowAdd(!showAdd)}>
-          <Plus className="h-3 w-3 mr-1" /> Add Promise
-        </Button>
+      {/* Mobile-Friendly Filter Pills Toolbar */}
+      <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1 no-scrollbar">
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => setFilterStatus("all")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                filterStatus === "all"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
+                  : "bg-slate-800/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              }`}
+            >
+              All ({total})
+            </button>
+            <button
+              onClick={() => setFilterStatus("achieved")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                filterStatus === "achieved"
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
+                  : "bg-slate-800/80 text-slate-400 hover:bg-slate-800 hover:text-emerald-400"
+              }`}
+            >
+              Achieved ({achieved})
+            </button>
+            <button
+              onClick={() => setFilterStatus("pending")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                filterStatus === "pending"
+                  ? "bg-amber-600 text-white shadow-md shadow-amber-600/20"
+                  : "bg-slate-800/80 text-slate-400 hover:bg-slate-800 hover:text-amber-400"
+              }`}
+            >
+              Pending ({pending})
+            </button>
+            {delayed > 0 && (
+              <button
+                onClick={() => setFilterStatus("delayed")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  filterStatus === "delayed"
+                    ? "bg-orange-600 text-white shadow-md shadow-orange-600/20"
+                    : "bg-slate-800/80 text-slate-400 hover:bg-slate-800 hover:text-orange-400"
+                }`}
+              >
+                Delayed ({delayed})
+              </button>
+            )}
+            <button
+              onClick={() => setFilterStatus("missed")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                filterStatus === "missed"
+                  ? "bg-rose-600 text-white shadow-md shadow-rose-600/20"
+                  : "bg-slate-800/80 text-slate-400 hover:bg-slate-800 hover:text-rose-400"
+              }`}
+            >
+              Missed ({missed})
+            </button>
+          </div>
+        </div>
       </div>
 
-      {showAdd && (
-        <Card className="p-4 bg-card border-border space-y-3">
-          <Input placeholder="Promise text *" value={newPromise.promise_text} onChange={e => setNewPromise(p => ({ ...p, promise_text: e.target.value }))} className="font-mono text-xs" />
-          <div className="flex gap-2">
-            <Input placeholder="Made in quarter (e.g. Q3FY25) *" value={newPromise.made_in_quarter} onChange={e => setNewPromise(p => ({ ...p, made_in_quarter: e.target.value }))} className="font-mono text-xs" />
-            <Input placeholder="Target deadline (e.g. Q1FY26)" value={newPromise.target_deadline} onChange={e => setNewPromise(p => ({ ...p, target_deadline: e.target.value }))} className="font-mono text-xs" />
-          </div>
-          <Button size="sm" onClick={handleAdd} disabled={adding} className="font-mono text-xs">
-            {adding ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null} Save
-          </Button>
-        </Card>
-      )}
-
-      {/* Promises Table */}
-      <Card className="p-4 bg-card border-border card-glow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full data-grid">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Made In</th>
-                <th className="text-left p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Promise</th>
-                <th className="text-left p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Deadline</th>
-                <th className="text-left p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Resolved In</th>
-                <th className="text-center p-2 text-muted-foreground text-[10px] uppercase tracking-wider">Status</th>
-                <th className="text-center p-2 text-muted-foreground text-[10px] uppercase tracking-wider w-10"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {promises.map((p) => (
-                <tr key={p.id} className="border-b border-border/50 hover:bg-muted/30">
-                  <td className="p-2 text-foreground font-mono text-xs">{p.made_in_quarter}</td>
-                  <td className="p-2 text-foreground text-xs max-w-[350px]">{p.promise_text}</td>
-                  <td className="p-2 text-muted-foreground text-xs font-mono">{p.target_deadline || "—"}</td>
-                  <td className="p-2 text-muted-foreground text-xs font-mono">{p.resolved_in_quarter || "—"}</td>
-                  <td className="p-2 text-center">
-                    {updating === p.id ? (
-                      <Loader2 className="h-3 w-3 animate-spin mx-auto text-muted-foreground" />
-                    ) : (
-                      <Select
-                        value={p.status}
-                        onValueChange={(val) => handleStatusChange(p.id, val, p.target_deadline || undefined)}
-                        disabled={isMock}
-                      >
-                        <SelectTrigger className={`h-6 w-[90px] font-mono text-[10px] border-0 bg-transparent ${
-                          p.status === "kept" ? "text-terminal-green" :
-                          p.status === "broken" ? "text-terminal-red" :
-                          "text-terminal-amber"
-                        }`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pending" className="font-mono text-xs">pending</SelectItem>
-                          <SelectItem value="kept" className="font-mono text-xs">kept</SelectItem>
-                          <SelectItem value="broken" className="font-mono text-xs">broken</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </td>
-                  <td className="p-2 text-center">
-                    {!isMock && (
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleDelete(p.id)} disabled={updating === p.id}>
-                        <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Commitments List Cards (Clean, Responsive, Card-Glow Design) */}
+      {isLoading ? (
+        <div className="py-12 text-center text-slate-400 font-mono text-sm">
+          Loading management commitments...
         </div>
-      </Card>
+      ) : filteredCommitments.length === 0 ? (
+        <Card className="p-8 text-center bg-slate-900/50 border-slate-800 rounded-xl">
+          <Info className="w-8 h-8 text-slate-500 mx-auto mb-2 opacity-60" />
+          <p className="text-sm font-medium text-slate-300">No management commitments found matching this filter.</p>
+          <p className="text-xs text-slate-500 mt-1">Select another filter pill above to view commitments.</p>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {filteredCommitments.map((c) => {
+            const isAchieved = c.status === "Achieved" || c.status === "kept";
+            const isMissed = c.status === "Missed" || c.status === "broken";
+            const isDelayed = c.status === "Delayed";
+            const isPending = c.status === "Pending" || c.status === "pending";
+
+            const isExpanded = expandedId === c.id;
+
+            return (
+              <Card
+                key={c.id}
+                className={`p-4 bg-slate-900/90 border transition-all rounded-xl shadow-md ${
+                  isAchieved ? "border-emerald-500/30 hover:border-emerald-500/60" :
+                  isMissed ? "border-rose-500/30 hover:border-rose-500/60" :
+                  isDelayed ? "border-orange-500/30 hover:border-orange-500/60" :
+                  "border-slate-800 hover:border-slate-700"
+                }`}
+              >
+                <div className="space-y-3">
+                  
+                  {/* Top Bar: Badges & Status */}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    
+                    {/* Left: Issued Quarter & Target Deadline Badges */}
+                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                      {c.quarter && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-mono text-[11px] border border-slate-700">
+                          <Calendar className="w-3 h-3 mr-1 text-indigo-400" />
+                          Made in: <strong className="ml-1 text-white">{c.quarter}</strong>
+                        </span>
+                      )}
+                      {c.timeline && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-300 font-mono text-[11px] border border-slate-700">
+                          <Target className="w-3 h-3 mr-1 text-amber-400" />
+                          Target: <strong className="ml-1 text-amber-300">{c.timeline}</strong>
+                        </span>
+                      )}
+                      {c.metric && (
+                        <Badge variant="secondary" className="bg-indigo-950/60 text-indigo-300 border-indigo-800/40 text-[10px] font-mono">
+                          {c.metric} {c.target_value ? `: ${c.target_value}` : ""}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* Right: Status Pill */}
+                    <div>
+                      {isAchieved && (
+                        <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 font-semibold text-xs px-2.5 py-0.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1 inline" /> Achieved
+                        </Badge>
+                      )}
+                      {isMissed && (
+                        <Badge className="bg-rose-500/15 text-rose-400 border-rose-500/30 font-semibold text-xs px-2.5 py-0.5">
+                          <XCircle className="w-3.5 h-3.5 mr-1 inline" /> Missed
+                        </Badge>
+                      )}
+                      {isDelayed && (
+                        <Badge className="bg-orange-500/15 text-orange-400 border-orange-500/30 font-semibold text-xs px-2.5 py-0.5">
+                          <AlertTriangle className="w-3.5 h-3.5 mr-1 inline" /> Delayed
+                        </Badge>
+                      )}
+                      {isPending && (
+                        <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 font-semibold text-xs px-2.5 py-0.5">
+                          <Clock className="w-3.5 h-3.5 mr-1 inline" /> Pending
+                        </Badge>
+                      )}
+                    </div>
+
+                  </div>
+
+                  {/* Commitment Statement */}
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-slate-100 leading-snug">
+                      {c.statement}
+                    </p>
+                  </div>
+
+                  {/* Evidence / Concall Q&A Reason Section */}
+                  {(c.evidence_summary || c.blockers_and_risks) && (
+                    <div className="pt-1">
+                      <button
+                        onClick={() => toggleExpand(c.id)}
+                        className="flex items-center text-xs font-mono text-indigo-400 hover:text-indigo-300 transition-colors"
+                      >
+                        <FileText className="w-3.5 h-3.5 mr-1" />
+                        {isExpanded ? "Hide Concall Evidence & Notes" : "View Concall Evidence & Operational Delta"}
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5 ml-1" /> : <ChevronDown className="w-3.5 h-3.5 ml-1" />}
+                      </button>
+
+                      {isExpanded && (
+                        <div className="mt-2.5 p-3 rounded-lg bg-slate-950/80 border border-slate-800 space-y-2 text-xs leading-relaxed animate-fadeIn">
+                          {c.evidence_summary && (
+                            <div>
+                              <p className="font-semibold text-slate-300 font-mono text-[11px] mb-0.5">Financial Audit Evidence:</p>
+                              <p className="text-slate-300 font-mono text-[11px] leading-normal bg-slate-900 p-2 rounded border border-slate-800/80">
+                                {c.evidence_summary}
+                              </p>
+                            </div>
+                          )}
+                          {c.blockers_and_risks && (
+                            <div>
+                              <p className="font-semibold text-amber-400 font-mono text-[11px] mb-0.5">Concall Q&A Management Explanation:</p>
+                              <p className="text-slate-400 font-mono text-[11px] leading-normal bg-amber-950/20 p-2 rounded border border-amber-900/30">
+                                {c.blockers_and_risks}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

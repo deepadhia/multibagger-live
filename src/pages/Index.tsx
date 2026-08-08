@@ -207,26 +207,52 @@ const Index = () => {
     });
   }, [stocks, allFinancials, allShareholding, allSnapshots, allPromises, allCommitments, analyses]);
 
-  /** Latest quarter per stock: sort by thesis tier then confidence (#1 cohort rank after ranks:quarterly:apply). */
+  /** Latest stocks with commitments on top, then sort by thesis tier & confidence. */
   const portfolioRankRows = useMemo(() => {
     if (!stocks?.length) return [];
+    
+    // Compute latest commitment timestamp & count per stock
+    const commitmentStatsMap = new Map<string, { count: number; maxTime: number }>();
+    (allCommitments || []).forEach((c) => {
+      const time = c.created_at ? new Date(c.created_at).getTime() : 0;
+      if (c.stock_id) {
+        const existing = commitmentStatsMap.get(c.stock_id) || { count: 0, maxTime: 0 };
+        commitmentStatsMap.set(c.stock_id, { count: existing.count + 1, maxTime: Math.max(existing.maxTime, time) });
+      }
+    });
+
     const rows = stocks.map((stock) => {
       const snaps = (allSnapshots || []).filter((s) => s.stock_id === stock.id);
       const ctx = latestSnapshotQuarterContext(snaps);
-      return { stock, ctx };
+      const stats = commitmentStatsMap.get(stock.id) || { count: 0, maxTime: 0 };
+      return { stock, ctx, commCount: stats.count, commMaxTime: stats.maxTime };
     });
+
     return rows.sort((a, b) => {
+      // 1. Stocks with commitments come before stocks without commitments
+      if (a.commCount > 0 && b.commCount === 0) return -1;
+      if (a.commCount === 0 && b.commCount > 0) return 1;
+
+      // 2. Sort by latest commitment timestamp (newest on top)
+      if (a.commCount > 0 && b.commCount > 0) {
+        if (b.commMaxTime !== a.commMaxTime) {
+          return b.commMaxTime - a.commMaxTime;
+        }
+        if (b.commCount !== a.commCount) {
+          return b.commCount - a.commCount;
+        }
+      }
+
+      // 3. Fallback: Thesis tier → confidence on latest quarter
       if (a.ctx && b.ctx) {
         if (b.ctx.consolidatedSortScore !== a.ctx.consolidatedSortScore) {
           return b.ctx.consolidatedSortScore - a.ctx.consolidatedSortScore;
         }
-        return a.stock.ticker.localeCompare(b.stock.ticker, undefined, { sensitivity: "base" });
-      }
-      if (a.ctx && !b.ctx) return -1;
-      if (!a.ctx && b.ctx) return 1;
+      } else if (a.ctx && !b.ctx) return -1;
+      else if (!a.ctx && b.ctx) return 1;
       return a.stock.ticker.localeCompare(b.stock.ticker, undefined, { sensitivity: "base" });
     });
-  }, [stocks, allSnapshots]);
+  }, [stocks, allSnapshots, allCommitments]);
 
   const portfolioRankCount = portfolioRankRows.filter((r) => r.ctx?.portfolioRank).length;
 
