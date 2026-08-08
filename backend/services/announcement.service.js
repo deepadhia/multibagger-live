@@ -654,8 +654,22 @@ export async function extractTextFromPdfUrl(url) {
     console.log(`[PDF] Parsing...`);
     const arrayBuffer = await response.arrayBuffer();
     const uint8 = new Uint8Array(arrayBuffer);
-    const parser = new PDFParse(uint8);
-    const data = await parser.getText();
+
+    // Suppress noisy pdf.js standardFontDataUrl / TT bytecode warnings from stdout
+    const origWarn = console.warn;
+    console.warn = (...args) => {
+      const msg = args.join(" ");
+      if (msg.includes("standardFontDataUrl") || msg.includes("TT: undefined function")) return;
+      origWarn(...args);
+    };
+
+    let data;
+    try {
+      const parser = new PDFParse(uint8);
+      data = await parser.getText();
+    } finally {
+      console.warn = origWarn;
+    }
     
     // Clean up text: remove extra whitespace and truncate
     const cleanText = data.text
