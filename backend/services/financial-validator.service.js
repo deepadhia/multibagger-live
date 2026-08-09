@@ -47,22 +47,23 @@ export function extractDeterministicFinancials(pdfText = "") {
     segmentRedFlags: []
   };
 
-  // Find where the actual financial results table starts (skipping cover letter)
-  let tableStartIdx = lines.findIndex((l, idx) => idx > 60 && (/segment-wise\s+revenue/i.test(l) || /particulars/i.test(l)));
-  if (tableStartIdx === -1) {
-    tableStartIdx = lines.findIndex((l, idx) => idx > 30 && (/segment/i.test(l) || /revenue\s+from\s+operations/i.test(l)));
-  }
+  // Find where the actual financial results table starts (prioritizing Consolidated over Standalone)
+  const consIdx = lines.findIndex(l => /statement\s+of\s+consolidated/i.test(l));
+  const tableLines = consIdx !== -1 ? lines.slice(consIdx) : lines;
 
-  const tableLines = tableStartIdx !== -1 ? lines.slice(tableStartIdx) : lines;
+  // Isolate primary income statement table lines (truncating before Standalone notes section)
+  const notesIdx = tableLines.findIndex(l => /key\s+standalone\s+financial|notes\s+to\s+consolidated/i.test(l));
+  const incomeStatementLines = notesIdx !== -1 ? tableLines.slice(0, notesIdx) : tableLines;
 
-  // Helper to parse numbers and detect unit scale (Lakhs vs Crores)
-  const isLakhs = fullTextLower.includes("lakhs") || fullTextLower.includes("in lakh") || fullTextLower.includes("(₹ in lakhs)");
+  // Helper to parse numbers and detect unit scale (Millions vs Lakhs vs Crores)
+  const isMillions = fullTextLower.includes("in million") || fullTextLower.includes("rs. millions") || fullTextLower.includes("in mn") || fullTextLower.includes("in rs. millions");
+  const isLakhs = !isMillions && (fullTextLower.includes("lakh") || fullTextLower.includes("lacs") || fullTextLower.includes("in lac"));
 
   const parseRowNumbers = (linePattern) => {
-    for (let i = 0; i < tableLines.length; i++) {
-      if (linePattern.test(tableLines[i])) {
+    for (let i = 0; i < incomeStatementLines.length; i++) {
+      if (linePattern.test(incomeStatementLines[i])) {
         // Search current line and next 2 lines for column numbers
-        const textToSearch = `${tableLines[i]} ${tableLines[i + 1] || ""} ${tableLines[i + 2] || ""}`;
+        const textToSearch = `${incomeStatementLines[i]} ${incomeStatementLines[i + 1] || ""} ${incomeStatementLines[i + 2] || ""}`;
         
         // Remove CIN numbers, BSE codes, dates, 4-digit years, and PIN codes before regex extraction
         const sanitized = textToSearch
@@ -75,13 +76,22 @@ export function extractDeterministicFinancials(pdfText = "") {
 
         const matches = sanitized.match(/-?\d+(?:,\d+)*(?:\.\d+)?/g);
         if (matches) {
-          const numbers = matches
+          let numbers = matches
             .map(m => parseFloat(m.replace(/,/g, "")))
             .filter(n => !isNaN(n) && Math.abs(n) > 0.05 && Math.abs(n) < 100000 && n !== 517271);
           
+          // Drop single-digit note reference numbers (e.g. Note 9, 1, 2) when followed by financial numbers
+          if (numbers.length >= 2 && numbers[0] < 15 && Number.isInteger(numbers[0]) && numbers[1] > 15) {
+            numbers = numbers.slice(1);
+          }
+
           if (numbers.length >= 1) {
-            // If numbers are in Lakhs, convert to Crores
-            return numbers.map(n => (isLakhs && n > 500 ? parseFloat((n / 100).toFixed(2)) : n));
+            // Convert Millions or Lakhs to Crores
+            return numbers.map(n => {
+              if (isMillions) return parseFloat((n / 10).toFixed(2));
+              if (isLakhs) return parseFloat((n / 100).toFixed(2));
+              return n;
+            });
           }
         }
       }
@@ -89,10 +99,13 @@ export function extractDeterministicFinancials(pdfText = "") {
     return null;
   };
 
-  // 1. Revenue / Sales from Operations
-  const revNumbers = parseRowNumbers(/(?:sales\/income\s+from\s+operations|revenue\s+from\s+operations|total\s+income|income\s+from\s+operations)/i);
+  // 1. Revenue / Sales from Operations (YoY & QoQ Engine)
+  const revNumbers = parseRowNumbers(/(?:sales\/income\s+from\s+operations|revenue\s+from\s+operations|total\s+income|income\s+from\s+operations|^I\.\s+\d)/i);
   if (revNumbers && revNumbers.length >= 1) {
     result.revenue = revNumbers[0];
+    if (revNumbers.length >= 2 && revNumbers[1] > 0) {
+      result.revenueQoQGrowthPct = parseFloat((((result.revenue - revNumbers[1]) / revNumbers[1]) * 100).toFixed(2));
+    }
     if (revNumbers.length >= 3 && revNumbers[2] > 0) {
       result.revenueYoYGrowthPct = parseFloat((((result.revenue - revNumbers[2]) / revNumbers[2]) * 100).toFixed(2));
     }
@@ -127,7 +140,7 @@ export function extractDeterministicFinancials(pdfText = "") {
     }
   }
 
-  // 3. Profit Before Tax (PBT)
+  // 3. Profit Before Tax (PBT) & EBITDA Engine (YoY & QoQ)
   const pbtNumbers = parseRowNumbers(/(?:total\s+profit\s+before\s+tax|profit\s+before\s+tax|pbt\b)/i);
   const finNumbers = parseRowNumbers(/(?:finance\s+costs|interest\s+expense)/i);
   const depNumbers = parseRowNumbers(/(?:depreciation|amortisation)/i);
@@ -141,6 +154,16 @@ export function extractDeterministicFinancials(pdfText = "") {
 
     if (result.revenue && result.revenue > 0) {
       result.ebitdaMarginPct = parseFloat(((result.ebitda / result.revenue) * 100).toFixed(2));
+    }
+
+    if (pbtNumbers.length >= 2) {
+      const seqPbt = pbtNumbers[1];
+      const seqFin = (finNumbers && finNumbers.length >= 2) ? finNumbers[1] : 0;
+      const seqDep = (depNumbers && depNumbers.length >= 2) ? depNumbers[1] : 0;
+      const seqEbitda = seqPbt + seqFin + seqDep;
+      if (seqEbitda > 0) {
+        result.ebitdaQoQGrowthPct = parseFloat((((result.ebitda - seqEbitda) / seqEbitda) * 100).toFixed(2));
+      }
     }
 
     if (pbtNumbers.length >= 3 && result.revenue) {
@@ -168,11 +191,15 @@ export function extractDeterministicFinancials(pdfText = "") {
     }
   }
 
-  // 4. Consolidated PAT & Exceptional Items Engine
+  // 4. Consolidated PAT & Exceptional Items Engine (YoY & QoQ)
   const patNumbers = parseRowNumbers(/(?:net\s+profit\s+for\s+the\s+period|profit\s+attributable\s+to\s+owners|profit\s+after\s+tax)/i);
   if (patNumbers && patNumbers.length >= 1) {
     result.patAttributable = patNumbers[0];
     result.patConsolidated = patNumbers[0];
+
+    if (patNumbers.length >= 2 && patNumbers[1] > 0) {
+      result.patQoQGrowthPct = parseFloat((((result.patAttributable - patNumbers[1]) / patNumbers[1]) * 100).toFixed(2));
+    }
 
     if (patNumbers.length >= 3 && patNumbers[2] > 0) {
       const prevYearPat = patNumbers[2];

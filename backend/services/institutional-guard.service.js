@@ -100,15 +100,25 @@ export function applyInstitutionalGuard(llmOutput = {}, financialData = null, ti
   if (financialData && financialData.isFinancialResult) {
     let summaryText = guarded.summary || guarded.verdict_summary || "";
 
-    // A. Mandatory Financial Highlights & EBITDA Injection across ALL verdicts
+    // A. Mandatory Financial Highlights & EBITDA Injection across ALL verdicts (YoY + QoQ)
+    const revYoYStr = (financialData.revenueYoYGrowthPct !== null && financialData.revenueYoYGrowthPct !== undefined) ? `${financialData.revenueYoYGrowthPct >= 0 ? '+' : ''}${financialData.revenueYoYGrowthPct}% YoY` : null;
+    const revQoQStr = (financialData.revenueQoQGrowthPct !== null && financialData.revenueQoQGrowthPct !== undefined) ? `${financialData.revenueQoQGrowthPct >= 0 ? '+' : ''}${financialData.revenueQoQGrowthPct}% QoQ` : null;
+    const revStrParts = [revYoYStr, revQoQStr].filter(Boolean);
+
+    const patYoYStr = (financialData.patYoYGrowthPct !== null && financialData.patYoYGrowthPct !== undefined) ? `${financialData.patYoYGrowthPct >= 0 ? '+' : ''}${financialData.patYoYGrowthPct}% YoY` : null;
+    const patQoQStr = (financialData.patQoQGrowthPct !== null && financialData.patQoQGrowthPct !== undefined) ? `${financialData.patQoQGrowthPct >= 0 ? '+' : ''}${financialData.patQoQGrowthPct}% QoQ` : null;
+    const patStrParts = [patYoYStr, patQoQStr].filter(Boolean);
+
     guarded.financial_highlights = {
-      revenue: financialData.revenue !== null ? `₹${financialData.revenue} Cr` : "N/A",
-      revenue_yoy: financialData.revenueYoYGrowthPct !== null ? `${financialData.revenueYoYGrowthPct >= 0 ? '+' : ''}${financialData.revenueYoYGrowthPct}%` : "N/A",
+      revenue: financialData.revenue !== null ? `₹${financialData.revenue} Cr (${revStrParts.join(" | ") || 'N/A'})` : "N/A",
+      revenue_yoy: revYoYStr || "N/A",
+      revenue_qoq: revQoQStr || "N/A",
       ebitda: financialData.ebitda !== null ? `₹${financialData.ebitda} Cr` : "N/A",
       ebitda_margin: financialData.ebitdaMarginPct !== null ? `${financialData.ebitdaMarginPct}%` : "N/A",
       ebitda_margin_delta: financialData.ebitdaMarginBpsDelta !== null ? `${financialData.ebitdaMarginBpsDelta >= 0 ? '+' : ''}${financialData.ebitdaMarginBpsDelta} bps YoY` : "N/A",
-      pat_consolidated: financialData.patAttributable !== null ? `₹${financialData.patAttributable} Cr` : "N/A",
-      pat_yoy: financialData.patYoYGrowthPct !== null ? `${financialData.patYoYGrowthPct >= 0 ? '+' : ''}${financialData.patYoYGrowthPct}%` : "N/A"
+      pat_consolidated: financialData.patAttributable !== null ? `₹${financialData.patAttributable} Cr (${patStrParts.join(" | ") || 'N/A'})` : "N/A",
+      pat_yoy: patYoYStr || "N/A",
+      pat_qoq: patQoQStr || "N/A"
     };
 
     if (financialData.ebitda !== null && financialData.ebitdaMarginPct !== null) {
