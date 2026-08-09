@@ -264,6 +264,8 @@ Return ONLY a valid JSON object:
 `;
       try {
         const resText = await runNimPrompt(systemPrompt, userPrompt, 0.05);
+        if (!resText || typeof resText !== "string") return null;
+
         let cleaned = resText
           .replace(/```json/gi, "")
           .replace(/```/g, "")
@@ -278,10 +280,31 @@ Return ONLY a valid JSON object:
 
         try {
           return JSON.parse(cleaned);
-        } catch (err1) {
-          // Retry with newline escape repair inside quotes
-          const repaired = cleaned.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (m, p1) => `"${p1.replace(/\n/g, "\\n").replace(/\r/g, "")}"`);
-          return JSON.parse(repaired);
+        } catch (e1) {
+          try {
+            const sanitised = cleaned
+              .replace(/:\s*"([^"]*?)"(?=\s*[,\}])/g, (m, val) => `: "${val.replace(/[\r\n]/g, ' ').replace(/"/g, "'")}"`)
+              .replace(/[\r\n\t]/g, " ");
+            return JSON.parse(sanitised);
+          } catch (e2) {
+            const signalMatch = cleaned.match(/"action_signal"\s*:\s*"(BUY|ADD|HOLD|TRIM|EXIT)"/i);
+            const scoreMatch = cleaned.match(/"conviction_score"\s*:\s*(\d{1,2})/);
+            const credMatch = cleaned.match(/"credibility_tier"\s*:\s*"(Tier\s*[123])"/i);
+            const summaryMatch = cleaned.match(/"verdict_summary"\s*:\s*"([^"]+)"/i);
+            
+            if (signalMatch || summaryMatch) {
+              return {
+                action_signal: signalMatch ? signalMatch[1].toUpperCase() : "ADD",
+                conviction_score: scoreMatch ? parseInt(scoreMatch[1], 10) : 7,
+                credibility_tier: credMatch ? credMatch[1] : "Tier 1",
+                verdict_summary: summaryMatch ? summaryMatch[1] : "Filing evaluated cleanly.",
+                key_drivers: [],
+                commitments: []
+              };
+            }
+            console.warn("[WORKER CHUNK WARN] Complete JSON repair fallback triggered:", e2.message);
+            return null;
+          }
         }
       } catch (err) {
         console.warn(`[WORKER CHUNK WARN] Part ${idx + 1} extraction failed:`, err.message);

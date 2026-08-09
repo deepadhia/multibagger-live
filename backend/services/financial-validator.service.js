@@ -47,13 +47,8 @@ export function extractDeterministicFinancials(pdfText = "") {
     segmentRedFlags: []
   };
 
-  // Find where the actual financial results table starts (prioritizing Consolidated over Standalone)
-  const consIdx = lines.findIndex(l => /statement\s+of\s+consolidated/i.test(l));
-  const tableLines = consIdx !== -1 ? lines.slice(consIdx) : lines;
-
-  // Isolate primary income statement table lines (truncating before Standalone notes section)
-  const notesIdx = tableLines.findIndex(l => /key\s+standalone\s+financial|notes\s+to\s+consolidated/i.test(l));
-  const incomeStatementLines = notesIdx !== -1 ? tableLines.slice(0, notesIdx) : tableLines;
+  const tableLines = lines;
+  const incomeStatementLines = lines;
 
   // Helper to parse numbers and detect unit scale (Millions vs Lakhs vs Crores)
   const isMillions = fullTextLower.includes("in million") || fullTextLower.includes("rs. millions") || fullTextLower.includes("in mn") || fullTextLower.includes("in rs. millions");
@@ -100,7 +95,7 @@ export function extractDeterministicFinancials(pdfText = "") {
   };
 
   // 1. Revenue / Sales from Operations (YoY & QoQ Engine)
-  const revNumbers = parseRowNumbers(/(?:sales\/income\s+from\s+operations|revenue\s+from\s+operations|total\s+income|income\s+from\s+operations|^I\.\s+\d)/i);
+  const revNumbers = parseRowNumbers(/(?:sales\/income\s+from\s+operations|revenue\s+from\s+operations|total\s+income|income\s+from\s+operations|^I\.\s*[\d,])/i);
   if (revNumbers && revNumbers.length >= 1) {
     result.revenue = revNumbers[0];
     if (revNumbers.length >= 2 && revNumbers[1] > 0) {
@@ -259,6 +254,18 @@ export function extractDeterministicFinancials(pdfText = "") {
           }
         }
       }
+    }
+  }
+
+  // 5. Sanity Check Filter: Reject garbled/corrupted extractions (e.g. from scanned image PDFs)
+  if (result.revenue !== null) {
+    if (result.revenueYoYGrowthPct !== null && (result.revenueYoYGrowthPct > 500 || result.revenueYoYGrowthPct < -95)) {
+      console.warn(`[FINANCIAL VALIDATOR] Rejected garbled YoY revenue growth (${result.revenueYoYGrowthPct}%). Falling back to LLM.`);
+      return null;
+    }
+    if (result.ebitdaMarginPct !== null && (result.ebitdaMarginPct > 95 || result.ebitdaMarginPct < -50)) {
+      console.warn(`[FINANCIAL VALIDATOR] Rejected garbled EBITDA margin (${result.ebitdaMarginPct}%). Falling back to LLM.`);
+      return null;
     }
   }
 
