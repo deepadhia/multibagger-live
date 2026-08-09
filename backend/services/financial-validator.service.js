@@ -190,7 +190,7 @@ export function extractDeterministicFinancials(pdfText = "") {
     result.exceptionalGain = excNumbers[0];
   }
 
-  const excLineMatch = fullText.match(/(?:exceptional\s+(?:item|gain)|profit\s+on\s+sale\s+of\s+[^\n.,]+)/i);
+  const excLineMatch = pdfText.match(/(?:exceptional\s+(?:item|gain)|profit\s+on\s+sale\s+of\s+[^\n.,]+)/i);
   if (excLineMatch) {
     exceptionalDescription = excLineMatch[0].trim();
   }
