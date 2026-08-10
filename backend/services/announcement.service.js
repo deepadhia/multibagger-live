@@ -488,15 +488,13 @@ export function generateAnnouncementHash(ticker, title, timestamp) {
 }
 
 /**
- * Checks if an announcement has already been processed in the DB.
- * 'pending' and 'failed' rows are excluded to allow retries.
+ * Checks if an announcement has already been processed or ingested in the DB.
  */
 export async function isAnnouncementProcessed(ticker, sourceId, titleHash) {
   const result = await pool.query(
     `SELECT id FROM corporate_announcements 
      WHERE ticker = $1 
-     AND (source_id = $2 OR title_hash = $3)
-     AND status NOT IN ('pending', 'failed')`,
+     AND (source_id = $2 OR title_hash = $3)`,
     [ticker, sourceId, titleHash]
   );
   return result.rows.length > 0;

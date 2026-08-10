@@ -10,6 +10,7 @@ on:
   schedule:
     - cron: '0 3-13/2 * * 1-5' # Every 2 hours Mon-Fri (08:30 AM to 06:30 PM IST)
     - cron: '0 12 * * 6'        # Saturday Evening Sweep at 05:30 PM IST (Weekend Board Meetings)
+    - cron: '0 6,12 * * 0'      # Sunday Sweeps at 11:30 AM & 05:30 PM IST (Sunday Board Meetings)
 
   # Manual trigger — useful for testing or on-demand runs outside hours
   workflow_dispatch:
@@ -24,11 +25,10 @@ on:
         default: false
 
 # ─── Concurrency ──────────────────────────────────────────────────────────────
-# Prevent overlapping scans — if a new run starts while one is in progress,
-# cancel the older one rather than queuing (avoids duplicate alert storms).
+# Prevent overlapping scans — complete running job before starting next run
 concurrency:
   group: scan-announcements
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   scan:

@@ -198,9 +198,16 @@ export function extractDeterministicFinancials(pdfText = "") {
 
     if (patNumbers.length >= 3 && patNumbers[2] > 0) {
       const prevYearPat = patNumbers[2];
-      result.patYoYGrowthPct = parseFloat((((result.patAttributable - prevYearPat) / prevYearPat) * 100).toFixed(2));
-      if (result.patYoYGrowthPct < -5.0) {
-        result.isYoYDecline = true;
+      const rawPatYoY = parseFloat((((result.patAttributable - prevYearPat) / prevYearPat) * 100).toFixed(2));
+      // Annual column mismatch safeguard: If PAT appears to drop >75% but revenue growth is positive/flat, it's comparing a 3-month quarter against a 12-month annual column.
+      if (rawPatYoY < -75.0 && (result.revenueYoYGrowthPct === null || result.revenueYoYGrowthPct > -10.0)) {
+        console.warn(`[FINANCIAL VALIDATOR] Rejected annual column PAT mismatch (${rawPatYoY}%). Leaving patYoYGrowthPct clean.`);
+        result.patYoYGrowthPct = null;
+      } else {
+        result.patYoYGrowthPct = rawPatYoY;
+        if (result.patYoYGrowthPct < -5.0) {
+          result.isYoYDecline = true;
+        }
       }
     }
   }

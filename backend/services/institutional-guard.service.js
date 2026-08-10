@@ -134,7 +134,10 @@ export function applyInstitutionalGuard(llmOutput = {}, financialData = null, ti
     }
 
     // B. Mandatory YoY Precedence: Overrule QoQ sequential framing if YoY PAT/Margin contracts
-    if (financialData.isYoYDecline || financialData.isMarginErosion) {
+    // (Only prepend if LLM summary does NOT report positive overall growth / strong results)
+    const isSummaryPositive = /(?:strong|growing|growth|increased|robust|expansion|up\s+\d+%)/i.test(summaryText) && !summaryText.toLowerCase().includes("decline");
+    
+    if ((financialData.isYoYDecline || financialData.isMarginErosion) && !isSummaryPositive) {
       let yoyDeclineHeader = "🔴 YoY Earnings Contraction:";
       if (financialData.patYoYGrowthPct !== null && financialData.patYoYGrowthPct < -5) {
         yoyDeclineHeader += ` Consolidated PAT declined ${financialData.patYoYGrowthPct}% YoY (₹${financialData.patAttributable} Cr).`;
