@@ -523,8 +523,9 @@ export async function processPendingDeepDives(options = {}) {
         [item.id, JSON.stringify({ institutional_verdict: verdict })]
       );
 
-      // Automatically reconcile stock guidance statuses against latest reported financials
+      // Automatically reconcile stock guidance statuses & regenerate 4 Institutional Syntheses
       await reconcileStockCommitments(item.ticker);
+      await generateInstitutionalSyntheses(item.ticker).catch(err => console.warn(`[WORKER] Synthesis update warning for ${item.ticker}:`, err.message));
 
       // Send Action Telegram Alert (unless suppressed for bulk backfill or generic fallback)
       const isGenericFallback = 
