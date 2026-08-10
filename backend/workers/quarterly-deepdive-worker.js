@@ -110,10 +110,9 @@ async function runNimPrompt(systemPrompt, userPrompt, temperature = 0.05) {
     throw new Error("NVIDIA_API_KEY not configured.");
   }
 
-  const MAX_RETRIES = 5;
-  const BASE_DELAY_MS = 2000;
+  const MAX_RETRIES = 2;
+  const BASE_DELAY_MS = 1500;
   const MODELS = [
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
     "meta/llama-3.3-70b-instruct",
     "meta/llama-3.1-70b-instruct"
   ];
@@ -121,7 +120,7 @@ async function runNimPrompt(systemPrompt, userPrompt, temperature = 0.05) {
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 180000); // 180s (3m) timeout for long concalls
+    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s per-call timeout for GitHub Actions
     const currentModel = MODELS[(attempt - 1) % MODELS.length];
 
     try {
@@ -801,8 +800,25 @@ export async function generateInstitutionalSyntheses(ticker) {
       `• [Title: ${c.commitment_title || 'N/A'}] Statement: ${c.statement} | Metric: ${c.metric} | Target: ${c.target_value} | Timeline: ${c.timeline} | Status: ${c.status} | Impact: ${c.credibility_impact}${c.blockers_and_risks ? ` | Blockers: ${c.blockers_and_risks}` : ''}`
     ).join('\n');
 
+    // Fetch existing synthesis timestamps for ticker
+    const { rows: existingSyntheses } = await pool.query(
+      "SELECT prompt_name, updated_at FROM stock_syntheses WHERE ticker = $1",
+      [ticker]
+    );
+    const existingMap = new Map(existingSyntheses.map(s => [s.prompt_name, new Date(s.updated_at).getTime()]));
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+
     for (const p of promptTemplates) {
+      // If this prompt was updated in the last 6 hours, skip to save time & avoid timeouts
+      const lastUpdated = existingMap.get(p.name);
+      if (lastUpdated && (nowMs - lastUpdated < SIX_HOURS_MS)) {
+        console.log(`[SYNTHESIS SKIP] Report '${p.title}' for ${ticker} updated recently (${Math.round((nowMs - lastUpdated)/60000)}m ago). Skipping.`);
+        continue;
+      }
+
       try {
+        console.log(`[SYNTHESIS RUN] Generating report '${p.title}' for ${ticker}...`);
         let promptText = p.template
           .replace(/{{company_metrics}}/g, metricsPlaceholderContent)
           .replace(/{{company_name}}/g, stock.company_name)
@@ -844,10 +860,11 @@ Provide a comprehensive, professional institutional equity research analysis fol
              DO UPDATE SET report_content = EXCLUDED.report_content, prompt_title = EXCLUDED.prompt_title, updated_at = NOW()`,
             [stock.id, ticker, p.name, p.title, reportContent]
           );
-          console.log(`[SYNTHESIS] Saved report '${p.title}' for ${ticker}`);
+          console.log(`[SYNTHESIS SUCCESS] Saved report '${p.title}' for ${ticker}`);
         }
       } catch (err) {
-        console.error(`[SYNTHESIS ERROR] Failed generating ${p.name} for ${ticker}:`, err.message);
+        console.error(`[SYNTHESIS WARNING] Deferred report '${p.title}' for ${ticker} to next run:`, err.message);
+        // Continue to next prompt or defer cleanly to subsequent run
       }
     }
   } catch (err) {
