@@ -92,7 +92,7 @@ pm2 delete multibagger-scanner || true
 pm2 start backend/scripts/scan-announcements-action.js \
   --name "multibagger-scanner" \
   --node-args="--max-old-space-size=512" \
-  --cron "*/2 * * * *" \
+  --cron "*/5 8-23 * * *" \
   --no-autorestart
 
 # Save PM2 process list and configure startup on boot

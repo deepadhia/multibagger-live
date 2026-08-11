@@ -21,9 +21,14 @@ git pull origin main
 echo "Installing dependencies..."
 npm install
 
-# 3. Reload PM2 daemon zero-downtime
-echo "Reloading PM2 daemon..."
-pm2 reload multibagger-scanner || pm2 restart multibagger-scanner
+# 3. Restart PM2 daemon with updated schedule
+echo "Restarting PM2 daemon with 5-minute (8 AM - 11 PM) schedule..."
+pm2 delete multibagger-scanner || true
+pm2 start backend/scripts/scan-announcements-action.js \
+  --name "multibagger-scanner" \
+  --node-args="--max-old-space-size=512" \
+  --cron "*/5 8-23 * * *" \
+  --no-autorestart
 
 # 4. Save PM2 state
 pm2 save
