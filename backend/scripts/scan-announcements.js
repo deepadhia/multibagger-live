@@ -1,3 +1,4 @@
+import { writeLog } from "../services/logger.service.js";
 import { 
   fetchBseAnnouncements, 
   fetchNseAnnouncements,
@@ -60,7 +61,7 @@ async function sendHeartbeat() {
  * Main Scanning Orchestrator
  */
 export async function scan({ isDryRun = false, runUrl = null } = {}) {
-  console.log(`Starting Corporate Announcement Scan... ${isDryRun ? "[DRY RUN]" : ""}`);
+  writeLog("SCANNER", `🟢 Starting Corporate Announcement Scan... ${isDryRun ? "[DRY RUN]" : "[LIVE DAEMON]"}`);
   const startTime = Date.now();
 
   // 0. System Cleanup & Heartbeat
@@ -71,7 +72,7 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
   const { rows: stocks } = await pool.query(
     "SELECT id, ticker, COALESCE(nse_symbol, ticker) AS nse_symbol, bse_scrip_code, investment_thesis, category FROM stocks WHERE category = 'Core' ORDER BY ticker"
   );
-  console.log(`Scanning ${stocks.length} Core portfolio stocks...`);
+  writeLog("SCANNER", `🔍 Monitoring ${stocks.length} Core portfolio stocks across NSE & BSE`);
 
   // ── Run-level stats (for end-of-run summary) ──
   let alertsSent        = 0;
