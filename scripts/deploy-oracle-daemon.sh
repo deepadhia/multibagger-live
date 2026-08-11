@@ -21,6 +21,10 @@ if ! command -v node &> /dev/null; then
   sudo apt-get install -y nodejs
 fi
 
+# 2b. Install project dependencies
+echo "Installing all npm dependencies..."
+npm install
+
 echo "Node version: $(node -v)"
 echo "NPM version: $(npm -v)"
 
