@@ -110,17 +110,16 @@ async function runNimPrompt(systemPrompt, userPrompt, temperature = 0.05) {
     throw new Error("NVIDIA_API_KEY not configured.");
   }
 
-  const MAX_RETRIES = 2;
-  const BASE_DELAY_MS = 1500;
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 2000;
   const MODELS = [
-    "meta/llama-3.3-70b-instruct",
     "meta/llama-3.1-70b-instruct"
   ];
   let lastErr;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s per-call timeout for GitHub Actions
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout for concall synthesis
     const currentModel = MODELS[(attempt - 1) % MODELS.length];
 
     try {
@@ -230,9 +229,9 @@ ${chunkText}
 
 ── Institutional Financial & Thesis Rules ──
 1. MANDATORY YOY PRECEDENCE: YoY comparison (e.g. Q1 FY27 vs Q1 FY26) is MANDATORY and MUST take precedence over QoQ sequential comparisons. If PAT contracts YoY (> -10%) or EBITDA margin contracts YoY (> -200 bps), the summary MUST lead with this YoY contraction as the headline financial result. NEVER bury a YoY profit or margin decline behind a QoQ sequential recovery framing.
-2. PAT PRECISION: Always extract Consolidated Net Profit (PAT) attributable to Owners of the Company (e.g. ₹149.19 Cr for Anant Raj, ₹109.14 Cr consolidated / ₹105.47 Cr standalone for HBL). NEVER use intermediate pre-tax or pre-associate line items (e.g. ₹146.13 Cr).
+2. PAT PRECISION: Always extract Consolidated Net Profit (PAT) attributable to Owners of the Company. NEVER use intermediate pre-tax, pre-associate, or standalone line items when consolidated tables are present.
 3. MANDATORY EBITDA & MARGINS: Always extract/calculate EBITDA (PBT + Finance Costs + Depreciation) and EBITDA Margin % (EBITDA / Revenue * 100). Include EBITDA YoY % growth and EBITDA Margin bps expansion/contraction.
-4. SEGMENT RED FLAG DETECTION: Extract all segment-wise results (Revenue & EBIT) and explicitly highlight any segment experiencing a YoY revenue/EBIT decline > 20% as a Segment Red Flag (e.g. HBL Defence & Aviation segment collapsing -72% YoY). NEVER claim 'no red flags' when a major segment collapses YoY.
+4. SEGMENT RED FLAG DETECTION: Extract all segment-wise results (Revenue & EBIT) and explicitly highlight any segment experiencing a YoY revenue/EBIT decline > 20% as a Segment Red Flag (e.g. Segment A EBIT declining > 20% YoY). NEVER claim 'no red flags' when a major segment collapses YoY.
 5. MULTI-VERTICAL THESIS RESPECT: NEVER claim a company has single-segment operations or lacks growth catalysts when the investment thesis or filing explicitly details multiple verticals (e.g. Real Estate + Data Centers + Ashok Cloud).
 6. ANTI-HALLUCINATION: NEVER report future quarter numbers (e.g. Q2 FY27) as actual achieved performance. Label any forward figure as 'Management Target/Guidance', never actuals.
 7. ACTION SIGNAL RECALIBRATION:
@@ -574,17 +573,66 @@ export async function processPendingDeepDives(options = {}) {
         }
 
         let concallText = "";
-        const concallPoints = verdict.dodged_questions || verdict.concall_verification_points || verdict.concall_checklist;
-        if (concallPoints && Array.isArray(concallPoints) && concallPoints.length > 0) {
-          concallText = `\n*🎙️ Concall Verification Points (What to check in Q&A):*\n${concallPoints.map(p => `• ${p}`).join('\n')}\n`;
+        if (item.deep_dive_status === "pending_stage2" || item.title.toLowerCase().includes("transcript") || item.title.toLowerCase().includes("concall")) {
+          console.log(`[WORKER] Generating rich segment-by-segment concall highlights for ${item.ticker}...`);
+          const ch = await generateStructuredConcallHighlights(item.ticker, item.company_name, docText);
+          if (ch && ch.segment_highlights && ch.segment_highlights.length > 0) {
+            verdict.concall_highlights = ch;
+          }
         }
 
-        const validDrivers = (verdict.key_drivers || []).filter(d => d && d !== "Results under evaluation");
-        const driversText = validDrivers.length > 0 
-          ? `\n*Key Thesis Drivers:*\n${validDrivers.map(d => `• ${d}`).join('\n')}\n`
-          : "";
+        if (verdict.concall_highlights) {
+          const ch = verdict.concall_highlights;
+          const finSec = (ch.financial_performance || ch.performance_overview || []).length > 0
+            ? `\n*📊 Financial Performance & Order Book:*\n${(ch.financial_performance || ch.performance_overview).map(p => `• ${p}`).join('\n')}\n`
+            : "";
+          const bizSec = (ch.business_performance || ch.segment_highlights || []).length > 0
+            ? `\n*📦 Business Performance & Contract Wins:*\n${(ch.business_performance || ch.segment_highlights).map(b => `• ${b}`).join('\n')}\n`
+            : "";
+          const growthSec = (ch.growth_initiatives || ch.strategic_growth_drivers || []).length > 0
+            ? `\n*🚀 Growth Initiatives & Tech Catalysts:*\n${(ch.growth_initiatives || ch.strategic_growth_drivers).map(g => `• ${g}`).join('\n')}\n`
+            : "";
+          const opsSec = (ch.operational_highlights || []).length > 0
+            ? `\n*🏭 Operational Highlights & Plant Status:*\n${ch.operational_highlights.map(o => `• ${o}`).join('\n')}\n`
+            : "";
+          const guidSec = (ch.management_guidance || []).length > 0
+            ? `\n*📈 Management Guidance & Outlook:*\n${ch.management_guidance.map(g => `• ${g}`).join('\n')}\n`
+            : "";
+          const posSec = (ch.key_positives || []).length > 0
+            ? `\n*✅ Key Positives:*\n${ch.key_positives.map(p => `• ${p}`).join('\n')}\n`
+            : "";
+          const chalSec = (ch.key_challenges || ch.key_risks || []).length > 0
+            ? `\n*⚠️ Key Challenges & Risks:*\n${(ch.key_challenges || ch.key_risks).map(c => `• ${c}`).join('\n')}\n`
+            : "";
+          const toneSec = ch.management_tone
+            ? `\n*🗣️ Management Tone:* ${ch.management_tone}\n`
+            : "";
+          const takeawaySec = ch.key_takeaway
+            ? `\n*🔑 Key Takeaway:*\n${ch.key_takeaway}\n`
+            : "";
 
-        const alertMsg = `
+          const alertMsg = `
+🎙️ *${item.company_name.toUpperCase()} (${item.ticker}) | CONCALL HIGHLIGHTS*
+
+*Action Signal:* ${signalEmoji} (Conviction: ${verdict.conviction_score}/10)
+*Management Credibility:* ${verdict.credibility_tier}
+${finSec}${bizSec}${growthSec}${opsSec}${guidSec}${commText}${posSec}${chalSec}${toneSec}${takeawaySec}
+_Analysis generated by Institutional Engine_
+`.trim();
+
+          await sendTelegramMessage(alertMsg);
+        } else {
+          const validDrivers = (verdict.key_drivers || []).filter(d => d && d !== "Results under evaluation");
+          const driversText = validDrivers.length > 0 
+            ? `\n*Key Thesis Drivers:*\n${validDrivers.map(d => `• ${d}`).join('\n')}\n`
+            : "";
+
+          const concallPoints = verdict.dodged_questions || verdict.concall_verification_points || verdict.concall_checklist;
+          if (concallPoints && Array.isArray(concallPoints) && concallPoints.length > 0) {
+            concallText = `\n*🎙️ Concall Verification Points (What to check in Q&A):*\n${concallPoints.map(p => `• ${p}`).join('\n')}\n`;
+          }
+
+          const alertMsg = `
 📊 *INSTITUTIONAL QUARTERLY VERDICT*
 *Stock:* ${item.company_name} (${item.ticker})
 *Review Stage:* ${stageName}
@@ -598,7 +646,8 @@ ${driversText}${concallText}
 _Analysis generated by Institutional Engine_
 `.trim();
 
-        await sendTelegramMessage(alertMsg);
+          await sendTelegramMessage(alertMsg);
+        }
       }
 
       console.log(`[WORKER PARALLEL] Completed deep-dive for ${item.ticker} (ID: ${item.id})`);
@@ -870,5 +919,66 @@ Provide a comprehensive, professional institutional equity research analysis fol
   } catch (err) {
     console.error(`[SYNTHESIS ERROR] Failed synthesis for ${ticker}:`, err.message);
   }
+}
+
+/**
+ * Generates structured, segment-by-segment institutional concall highlights for Telegram.
+ */
+export async function generateStructuredConcallHighlights(ticker, companyName, docText) {
+  if (!docText || docText.length < 300) return null;
+
+  // Clean boilerplate cover letters
+  let cleanText = docText;
+  const concallStart = docText.toLowerCase().search(/(?:management:|moderator:|management\s+opening|presentation|executive\s+summary|q&a|question\s+and\s+answer|remarks|highlights)/i);
+  if (concallStart !== -1 && concallStart < 5000) {
+    cleanText = docText.substring(concallStart);
+  }
+  cleanText = capContext(cleanText, 8000);
+
+  const systemPrompt = `You are a Senior Managing Director & Chief Equity Strategist at a top-tier institutional research firm. Extract a comprehensive, highly quantitative, 8-section concall highlight report from the earnings conference call transcript. Include exact monetary values, deal sizes, margin guidance %, and operational milestone timelines.`;
+  const userPrompt = `
+Company: ${companyName} (${ticker})
+Concall Transcript Content:
+${cleanText}
+
+Extract the following structured sections:
+1. "financial_performance": List bullet points covering Total Income/Revenue (YoY %), EBITDA (YoY % & Margin %), PAT (YoY %), Order Book total, Export Order Book, Funds/Cash availability, and Quarterly Order Inflows.
+2. "business_performance": List contract wins, division details, specific customer orders (e.g. Aerospace orders, Semiconductor fab orders, LNG stations, CERN/ITER France, OEM contracts). Include exact monetary order sizes where available.
+3. "growth_initiatives": List new certifications, technology partnerships (e.g. Wayout Sweden), new product categories, prototype developments, and skill centers.
+4. "operational_highlights": List plant commissioning status (e.g. Savli, Kandla, Chakan), facility expansions, dealer network growth, and execution timelines.
+5. "management_guidance": List explicit full-year guidance for Revenue Growth %, EBITDA Margin %, Order Inflows, Capex guidance, and execution outlook.
+6. "key_positives": List 4-5 major positive execution catalysts.
+7. "key_challenges": List 3-4 operational risks (logistics, freight costs, shipment delays, commodity inflation).
+8. "management_tone": State tone in 2-3 words (e.g. "Highly Confident, Execution-Driven").
+9. "key_takeaway": Provide a 1-sentence institutional bottom line synthesis.
+
+Return ONLY a valid JSON object:
+{
+  "financial_performance": ["Revenue: ₹X Cr (+Y% YoY)", "EBITDA: ₹X Cr (+Y% YoY, Margin Z%)"],
+  "business_performance": ["Aerospace orders: details & figures", "Semiconductor Dholera: details"],
+  "growth_initiatives": ["Initiative 1", "Initiative 2"],
+  "operational_highlights": ["Plant 1 status", "Timeline 2"],
+  "management_guidance": ["FY27 Revenue Growth: X-Y%", "EBITDA Margin: A-B%"],
+  "key_positives": ["Positive 1", "Positive 2"],
+  "key_challenges": ["Challenge 1", "Challenge 2"],
+  "management_tone": "Highly Confident, Execution-Driven",
+  "key_takeaway": "1-sentence executive takeaway"
+}
+`;
+
+  try {
+    const resText = await runNimPrompt(systemPrompt, userPrompt, 0.05);
+    if (!resText) return null;
+    let cleaned = resText.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+      return JSON.parse(cleaned);
+    }
+  } catch (err) {
+    console.warn(`[CONCALL HIGHLIGHTS WARN] Failed for ${ticker}:`, err.message);
+  }
+  return null;
 }
 

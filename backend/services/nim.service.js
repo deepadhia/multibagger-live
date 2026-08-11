@@ -64,9 +64,9 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
 
     ── Financial Data Precision & Extraction Rules ──
     1. MANDATORY YOY PRECEDENCE: YoY comparison (e.g. Q1 FY27 vs Q1 FY26) is MANDATORY and MUST take precedence over QoQ sequential comparisons. If PAT contracts YoY (> -10%) or EBITDA margin contracts YoY (> -200 bps), lead with this YoY contraction as the headline financial result. NEVER bury a YoY profit or margin decline behind a QoQ sequential recovery framing.
-    2. PAT PRECISION: Always extract 'Net Profit for the period (PAT) attributable to Owners of the Company' (e.g. ₹149.19 Cr for Anant Raj, ₹109.14 Cr consolidated / ₹105.47 Cr standalone for HBL). NEVER use intermediate pre-tax or pre-associate line items (e.g. ₹146.13 Cr).
+    2. PAT PRECISION: Always extract 'Net Profit for the period (PAT) attributable to Owners of the Company'. NEVER use intermediate pre-tax, pre-associate, or standalone line items when consolidated tables are present.
     3. MANDATORY EBITDA & MARGINS: For all Financial Results filings, ALWAYS extract or calculate EBITDA (Profit Before Tax + Finance Costs + Depreciation) and EBITDA Margin % (EBITDA / Revenue from Operations * 100). Always state EBITDA YoY % growth and EBITDA Margin bps change.
-    4. SEGMENT RED FLAG DETECTION: Extract all segment-wise results (Revenue & EBIT) and explicitly highlight any segment experiencing a YoY revenue/EBIT decline > 20% as a Segment Red Flag (e.g. HBL Defence & Aviation segment collapsing -72% YoY). NEVER claim 'no red flags' when a major segment collapses YoY.
+    4. SEGMENT RED FLAG DETECTION: Extract all segment-wise results (Revenue & EBIT) and explicitly highlight any segment experiencing a YoY revenue/EBIT decline > 20% as a Segment Red Flag (e.g. Segment A EBIT declining > 20% YoY). NEVER claim 'no red flags' when a major segment collapses YoY.
     5. MULTI-SEGMENT THESIS RESPECT: NEVER claim a company has single-segment operations or no diversification when the investment thesis or filing explicitly details multiple verticals (e.g., Real Estate + Data Center + Cloud Services under Ashok Cloud).
     6. ANTI-HALLUCINATION: NEVER report future quarter numbers (e.g. Q2 FY27) as actual achieved performance. Label any forward figure as 'Management Target/Guidance', never actuals.
 

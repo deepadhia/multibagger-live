@@ -273,12 +273,15 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
           deepDiveStatus = prevCompleted.rows.length > 0 ? "pending_stage2" : "pending_stage1";
         }
 
-        // 7. Alert if High Priority or Earnings Release or Concall/Transcript or Completed AGM or Regulatory/Credit event
+        // 7. Alert ONLY if non-earnings routine/regulatory event (Earnings Results & Concalls are deferred to Quarterly Deep-Dive Worker for full multi-page PDF verification)
         let sentToTelegram = false;
         const isRegulatoryOrCredit = ["REGULATORY_ACTION", "CREDIT_EVENT"].includes(filingCategory);
         const isAgm = eventAnalysis?.is_agm || title.toUpperCase().includes("AGM") || title.toUpperCase().includes("ANNUAL GENERAL MEETING");
         const isAgmCompleted = isAgm && (title.toUpperCase().includes("OUTCOME") || title.toUpperCase().includes("PROCEEDINGS") || title.toUpperCase().includes("VOTING RESULTS"));
-        const shouldHaveAlerted = concallType || aiResult.is_earnings_release || isAgmCompleted || isRegulatoryOrCredit || aiResult.priority === "HIGH" || (aiResult.priority === "MEDIUM" && aiResult.impact !== "NEUTRAL");
+
+        // Defer Stage 1 results and Stage 2 concall alerts to quarterly-deepdive-worker.js
+        const isQueuedForDeepDive = deepDiveStatus === "pending_stage1" || deepDiveStatus === "pending_stage2";
+        const shouldHaveAlerted = !isQueuedForDeepDive && (isAgmCompleted || isRegulatoryOrCredit || aiResult.priority === "HIGH");
 
         // 7a. Event-level Deduplication Guard (Check if alert sent recently for same ticker & event type/doc URL)
         let isDuplicateEvent = false;
