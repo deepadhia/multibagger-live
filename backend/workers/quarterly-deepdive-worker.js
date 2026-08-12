@@ -757,7 +757,7 @@ export async function reconcileStockCommitments(ticker) {
 /**
  * Generates and persists the 4 Institutional Synthesis Reports for a stock using NVIDIA NIM LLM.
  */
-export async function generateInstitutionalSyntheses(ticker) {
+export async function generateInstitutionalSyntheses(ticker, force = false) {
   if (!ticker) return;
 
   console.log(`[SYNTHESIS] Generating 4 Institutional Synthesis Reports for ${ticker}...`);
@@ -869,9 +869,9 @@ ${missed > 0 ? `\n🔴 Missed / Broken Guidance Breakdown (${missed}):\n${missed
     const nowMs = Date.now();
 
     for (const p of promptTemplates) {
-      // If this prompt was updated in the last 6 hours, skip to save time & avoid timeouts
+      // If this prompt was updated in the last 6 hours, skip UNLESS force = true
       const lastUpdated = existingMap.get(p.name);
-      if (lastUpdated && (nowMs - lastUpdated < SIX_HOURS_MS)) {
+      if (!force && lastUpdated && (nowMs - lastUpdated < SIX_HOURS_MS)) {
         console.log(`[SYNTHESIS SKIP] Report '${p.title}' for ${ticker} updated recently (${Math.round((nowMs - lastUpdated)/60000)}m ago). Skipping.`);
         continue;
       }
