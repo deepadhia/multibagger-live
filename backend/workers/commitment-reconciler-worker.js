@@ -198,7 +198,9 @@ export async function reconcileCommitments(ticker, dryRun = true) {
     }
   }
 
-  console.table(auditResults);
+  if (process.env.VERBOSE === 'true') {
+    console.table(auditResults);
+  }
   return auditResults;
 }
 

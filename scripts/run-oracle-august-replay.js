@@ -31,7 +31,7 @@ async function runFullThoroughAugustReplay() {
 
   console.log('================================================================');
   console.log('=== ORACLE SERVER — THOROUGH DEEP-DIVE AUGUST REPLAY ===');
-  console.log('=== (100% DEEP PROCESSING | ZERO SHORTCUTS | FULL NIM ANALYSIS) ===');
+  console.log('=== (100% DEEP PROCESSING | CRISP ALERT TERMINAL LOGS) ===');
   console.log('================================================================\n');
 
   const core11Tickers = [
@@ -59,7 +59,7 @@ async function runFullThoroughAugustReplay() {
   );
 
   writeLog("REPLAY", `Found ${announcements.length} total corporate announcements since August 1, 2026 across 11 Core stocks.`);
-  console.log(`Executing 100% deep processing for all ${announcements.length} filings. Telegram dispatches are DISABLED.\n`);
+  console.log(`Processing ${announcements.length} filings. Telegram channel dispatches are DISABLED.\n`);
 
   const startTime = Date.now();
   const extractedDataList = [];
@@ -72,35 +72,21 @@ async function runFullThoroughAugustReplay() {
     const progressPct = ((count / announcements.length) * 100).toFixed(1);
     
     writeLog("PROGRESS", `[${count}/${announcements.length}] (${progressPct}%) Processing ${item.company_name} (${item.ticker}) — Elapsed: ${elapsedMinutes}m`);
-    writeLog("REPLAY", `📄 Filing Title: "${item.title}"`);
 
-    if (!item.attachment_url) {
-      writeLog("SKIP", `No PDF attachment for item ID ${item.id}`);
-      continue;
-    }
+    if (!item.attachment_url) continue;
 
     let docText = "";
     try {
       docText = await extractTextFromPdfUrl(item.attachment_url);
-      writeLog("PDF", `Downloaded & extracted 100% PDF text (${docText.length} characters).`);
     } catch (err) {
       writeLog("WARN", `Failed downloading PDF for ${item.ticker}: ${err.message}`);
       continue;
     }
 
-    // 1. Run NIM AI Institutional Event Classification
-    let classification = null;
-    try {
-      classification = await classifyAnnouncementWithNim(item.title, docText, item.ticker);
-      writeLog("CLASSIFIER", `NIM Event Signal: ${classification?.materiality} | Category: ${classification?.category || 'General'}`);
-    } catch (err) {
-      writeLog("WARN", `NIM classification error: ${err.message}`);
-    }
-
-    // 2. Verified Ground Truth Check for Financial Results
-    const truth = getVerifiedGroundTruth(item.ticker);
-    const isResults = item.title.toLowerCase().includes("result") || item.title.toLowerCase().includes("outcome of board");
-    const isConcall = item.title.toLowerCase().includes("transcript") || item.title.toLowerCase().includes("concall");
+    const titleLower = item.title.toLowerCase();
+    const isResults = titleLower.includes("result") || titleLower.includes("outcome of board");
+    const isConcall = titleLower.includes("transcript") || titleLower.includes("concall");
+    const isOrderWin = titleLower.includes("order") || titleLower.includes("award") || titleLower.includes("contract");
 
     let proposedAlert = "";
     let extractedRecord = {
@@ -110,25 +96,41 @@ async function runFullThoroughAugustReplay() {
       filingTitle: item.title,
       publishedAt: item.created_at,
       pdfUrl: item.attachment_url,
-      extractedTextLength: docText.length,
-      nimClassification: classification
+      extractedTextLength: docText.length
     };
 
+    // 1. Results Ground Truth Processing
+    const truth = getVerifiedGroundTruth(item.ticker);
+
     if (isResults && truth) {
+      const signalEmoji = truth.isMarginErosion ? '🟡 [HOLD]' : '🟢 [BUY/ADD]';
+      const reportedPatStr = truth.reportedPat ? ` | Reported PAT: ₹${truth.reportedPat} Cr (Exceptional Gain: ₹${truth.exceptionalGain} Cr)` : '';
+      
+      writeLog("ALERT", `🚀 FINANCIAL RESULTS: ${item.company_name} (${item.ticker})\n` +
+        `       • Revenue: ₹${truth.revenue} Cr (${truth.revenueYoYGrowthPct >= 0 ? '+' : ''}${truth.revenueYoYGrowthPct}% YoY) | EBITDA: ₹${truth.ebitda} Cr (Margin: ${truth.ebitdaMarginPct}%)\n` +
+        `       • Core PAT: ₹${truth.patConsolidated} Cr (${truth.patYoYGrowthPct >= 0 ? '+' : ''}${truth.patYoYGrowthPct}% YoY)${reportedPatStr}\n` +
+        `       • Action Signal: ${signalEmoji}`
+      );
+
       proposedAlert = `### 🚀 FINANCIAL RESULTS DEEP-DIVE: ${item.company_name} (${item.ticker})\n` +
         `**Date:** ${new Date(item.created_at).toLocaleString('en-IN')}\n` +
-        `**Signal:** ${truth.isMarginErosion ? '🟡 [HOLD]' : '🟢 [BUY/ADD]'}\n` +
+        `**Signal:** ${signalEmoji}\n` +
         `**Verified Financial Metrics:**\n` +
         `• Revenue: ₹${truth.revenue} Cr (${truth.revenueYoYGrowthPct >= 0 ? '+' : ''}${truth.revenueYoYGrowthPct}% YoY)\n` +
         `• EBITDA: ₹${truth.ebitda} Cr (Margin: ${truth.ebitdaMarginPct}%, ${truth.ebitdaMarginBpsDelta >= 0 ? '+' : ''}${truth.ebitdaMarginBpsDelta} bps YoY)\n` +
-        `• Consolidated PAT: ₹${truth.patConsolidated} Cr (${truth.patYoYGrowthPct >= 0 ? '+' : ''}${truth.patYoYGrowthPct}% YoY)\n\n` +
-        `---\n\n`;
+        `• Core PAT: ₹${truth.patConsolidated} Cr (${truth.patYoYGrowthPct >= 0 ? '+' : ''}${truth.patYoYGrowthPct}% YoY)\n` +
+        (truth.reportedPat ? `• Reported PAT: ₹${truth.reportedPat} Cr (Includes ₹${truth.exceptionalGain} Cr Exceptional Item)\n` : '') + `\n---\n\n`;
       
       extractedRecord.financialTruth = truth;
       processedTickers.add(item.ticker);
     } else if (isConcall && docText.length > 500) {
       try {
         const verdict = await evaluateInstitutionalVerdict(item.ticker, "Core Portfolio Holding", docText, "Concall Transcript", item.title);
+        writeLog("ALERT", `🎙️ CONCALL HIGHLIGHTS: ${item.company_name} (${item.ticker})\n` +
+          `       • Action Signal: ${verdict?.action_signal || 'HOLD'} (Credibility Tier ${verdict?.credibility_tier || 1})\n` +
+          `       • Takeaway: ${(verdict?.key_takeaways?.[0] || 'Concall transcript ingested cleanly.')}`
+        );
+
         proposedAlert = `### 🎙️ CONCALL INSTITUTIONAL VERDICT: ${item.company_name} (${item.ticker})\n` +
           `**Date:** ${new Date(item.created_at).toLocaleString('en-IN')}\n` +
           `**Verdict:** ${verdict?.action_signal || 'HOLD'} (Credibility: Tier ${verdict?.credibility_tier || 1})\n` +
@@ -140,15 +142,19 @@ async function runFullThoroughAugustReplay() {
       } catch (err) {
         writeLog("WARN", `Concall verdict evaluation warning: ${err.message}`);
       }
+    } else if (isOrderWin) {
+      writeLog("ALERT", `📦 ORDER WIN DECLARED: ${item.company_name} (${item.ticker}) — "${item.title}"`);
     }
 
     if (proposedAlert) {
       fs.appendFileSync(TELEGRAM_ALERTS_FILE, proposedAlert, 'utf8');
     }
 
-    // 3. Reconcile Commitments (Persists to DB)
+    // 2. Reconcile Commitments (Persists to DB)
     try {
       const reconciled = await reconcileCommitments(item.ticker, false);
+      const achievedCount = reconciled.filter(r => r.calculatedStatus === 'Achieved').length;
+      writeLog("RECONCILER", `✅ Reconciled commitments for ${item.ticker}: ${achievedCount}/${reconciled.length} Achieved (DB Updated)`);
       extractedRecord.reconciledCommitments = reconciled;
     } catch (err) {}
 
@@ -156,7 +162,7 @@ async function runFullThoroughAugustReplay() {
     fs.writeFileSync(EXTRACTED_DATA_FILE, JSON.stringify(extractedDataList, null, 2));
   }
 
-  // 4. Regenerate 4 Institutional Syntheses in DB for all tickers
+  // 3. Regenerate 4 Institutional Syntheses in DB for all tickers
   writeLog("REPLAY", `🔄 Regenerating 4 Institutional Synthesis Reports in DB for ${processedTickers.size} updated tickers...`);
   for (const ticker of processedTickers) {
     try {
