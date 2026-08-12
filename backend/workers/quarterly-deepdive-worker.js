@@ -846,7 +846,9 @@ export async function generateInstitutionalSyntheses(ticker) {
 - 🟡 Partially Achieved: ${partial} (${partialPct}%)
 - ⏳ Pending / In-Progress: ${pending} (${pendingPct}%)`;
 
-    const commitmentsSummary = comms.map(c => 
+    // Cap prompt commitments summary to top 25 key items to prevent 50k character prompt bloat
+    const topComms = comms.slice(0, 25);
+    const commitmentsSummary = topComms.map(c => 
       `• [Title: ${c.commitment_title || 'N/A'}] Statement: ${c.statement} | Metric: ${c.metric} | Target: ${c.target_value} | Timeline: ${c.timeline} | Status: ${c.status} | Impact: ${c.credibility_impact}${c.blockers_and_risks ? ` | Blockers: ${c.blockers_and_risks}` : ''}`
     ).join('\n');
 
