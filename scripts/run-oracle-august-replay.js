@@ -26,7 +26,14 @@ function ensureAuditDir() {
 async function extractDocumentHighlightsJson(ticker, companyName, rawText, docType = "Concall") {
   let cleanText = rawText.substring(0, 14000);
 
-  const systemRole = "You are a Senior Managing Director & Chief Equity Strategist at an institutional fund. Extract structured, highly quantitative document highlights in valid JSON.";
+  const systemRole = `You are a Senior Managing Director & Chief Equity Strategist at an institutional fund. Extract structured, highly quantitative document highlights in valid JSON.
+
+CRITICAL UNIT NORMALIZATION RULE (FOR ALL STOCKS):
+Check document header for unit indicators: '(₹ in Lakhs)', '(₹ in Millions)', '(₹ in Mn)', or '(₹ in Crores)'.
+ALWAYS CONVERT ALL MONETARY FIGURES INTO STANDARDIZED INR CRORES (₹ Cr):
+- 10 Million = 1 Crore (Divide Mn by 10)
+- 100 Lakhs = 1 Crore (Divide Lakhs by 100)
+- Always format monetary figures as ₹ Cr (e.g. 'Revenue: ₹1,693.8 Cr', 'Order Book: ₹9,217 Cr'). NEVER output raw unscaled Millions or Lakhs as Crores.`;
 
   let userPrompt = "";
   if (docType === "Presentation") {
@@ -40,8 +47,9 @@ Extract valid JSON with keys:
 2. "capacity_and_capex": ["Plant status", "Expansion timelines"],
 3. "product_mix_and_exports": ["Value-added mix %", "Export share %"],
 4. "order_book_and_clients": ["Order book size in ₹ Cr", "New client wins"],
-5. "guidance_and_outlook": ["FY27 Revenue/Margin target %"],
-6. "key_takeaway": "1-sentence executive summary of the investor presentation"
+5. "stock_price_drivers": ["Free Cash Flow (FCF) in ₹ Cr", "Debtor / Working Capital Days", "Net Debt / Net Cash in ₹ Cr"],
+6. "guidance_and_outlook": ["FY27 Revenue/Margin target %"],
+7. "key_takeaway": "1-sentence executive summary of the investor presentation"
 `;
   } else if (docType === "AGM") {
     userPrompt = `
@@ -55,7 +63,8 @@ Extract valid JSON with keys:
 3. "long_term_vision": ["5-Year CAGR target %", "Revenue target for FY28/FY30"],
 4. "dividend_and_shareholder_returns": ["Dividend per share", "Buyback / Rights updates"],
 5. "voting_and_governance": ["Key resolutions passed", "Re-appointment approvals"],
-6. "key_takeaway": "1-sentence executive bottom-line of AGM proceedings"
+6. "stock_price_drivers": ["Free Cash Flow (FCF)", "Debtor Days", "Demerger / Listing timeline"],
+7. "key_takeaway": "1-sentence executive bottom-line of AGM proceedings"
 `;
   } else {
     // Concall Transcript
@@ -69,10 +78,11 @@ Extract valid JSON with keys:
 2. "business_performance": ["Division 1 details", "Contract wins with ₹ Cr sizes"],
 3. "growth_initiatives": ["Tech partnerships", "Certifications", "New product launches"],
 4. "operational_highlights": ["Plant 1 status", "Capacity expansion timelines"],
-5. "management_guidance": ["FY27 Revenue Growth % target", "EBITDA Margin % target"],
-6. "key_positives": ["Positive 1", "Positive 2"],
-7. "key_challenges": ["Risk 1", "Risk 2"],
-8. "key_takeaway": "1-sentence executive bottom-line synthesis"
+5. "stock_price_drivers": ["Free Cash Flow (FCF) in ₹ Cr", "Debtor / Working Capital Days", "Net Debt / Net Cash Status"],
+6. "management_guidance": ["FY27 Revenue Growth % target", "EBITDA Margin % target"],
+7. "key_positives": ["Positive 1", "Positive 2"],
+8. "key_challenges": ["Risk 1", "Risk 2"],
+9. "key_takeaway": "1-sentence executive bottom-line synthesis"
 `;
   }
 
@@ -191,16 +201,18 @@ async function runFullThoroughAugustReplay() {
     const truth = getVerifiedGroundTruth(item.ticker);
     if (isResults && truth) {
       const signalEmoji = truth.isMarginErosion ? '🟡 [HOLD]' : '🟢 [BUY/ADD]';
-      const reportedPatStr = truth.reportedPat ? ` | Reported PAT: ₹${truth.reportedPat} Cr (Includes ₹${truth.exceptionalGain} Cr Exceptional Item)` : '';
+      const reportedPatStr = truth.reportedPat ? `\n• Reported PAT: ₹${truth.reportedPat} Cr (Includes ₹${truth.exceptionalGain} Cr Exceptional Item)` : '';
+      const orderBookStr = truth.orderBookTotal ? `\n• Order Backlog: ₹${truth.orderBookTotal} Cr (Export Backlog: ₹${truth.exportOrderBook} Cr)` : '';
       
       proposedAlert = `### 🚀 FINANCIAL RESULTS DEEP-DIVE: ${item.company_name} (${item.ticker})\n` +
         `**Date:** ${new Date(item.created_at).toLocaleString('en-IN')}\n` +
         `**Signal:** ${signalEmoji}\n` +
-        `**Verified Financial Metrics:**\n` +
+        `**Verified Financial & Balance Sheet Metrics:**\n` +
         `• Revenue: ₹${truth.revenue} Cr (${truth.revenueYoYGrowthPct >= 0 ? '+' : ''}${truth.revenueYoYGrowthPct}% YoY)\n` +
         `• EBITDA: ₹${truth.ebitda} Cr (Margin: ${truth.ebitdaMarginPct}%, ${truth.ebitdaMarginBpsDelta >= 0 ? '+' : ''}${truth.ebitdaMarginBpsDelta} bps YoY)\n` +
-        `• Core PAT: ₹${truth.patConsolidated} Cr (${truth.patYoYGrowthPct >= 0 ? '+' : ''}${truth.patYoYGrowthPct}% YoY)\n` +
-        (truth.reportedPat ? `• Reported PAT: ₹${truth.reportedPat} Cr (Includes ₹${truth.exceptionalGain} Cr Exceptional Gain)\n` : '') + `\n---\n\n`;
+        `• Core PAT: ₹${truth.patConsolidated} Cr (${truth.patYoYGrowthPct >= 0 ? '+' : ''}${truth.patYoYGrowthPct}% YoY)` +
+        reportedPatStr +
+        orderBookStr + `\n---\n\n`;
       
       extractedRecord.financialTruth = truth;
       processedTickers.add(item.ticker);

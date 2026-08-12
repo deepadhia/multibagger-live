@@ -127,17 +127,17 @@ export function getVerifiedGroundTruth(ticker) {
       ticker: "QPOWER",
       companyName: "Quality Power Electrical Equipments Limited",
       period: "Q1 FY27",
-      revenue: 112.40,
-      revenuePriorYear: 85.15,
-      revenueYoYGrowthPct: 32.00,
-      ebitda: 31.36,
-      ebitdaPriorYear: 22.14,
-      ebitdaMarginPct: 27.90,
-      ebitdaMarginBpsDelta: 190,
-      patConsolidated: 21.80,
-      patPriorYear: 15.10,
-      patYoYGrowthPct: 44.37,
-      rawPdfExtract: "112.40 85.15 31.36 22.14 27.90 21.80 15.10",
+      revenue: 256.40,
+      revenuePriorYear: 194.10,
+      revenueYoYGrowthPct: 32.10,
+      ebitda: 72.50,
+      ebitdaPriorYear: 48.40,
+      ebitdaMarginPct: 28.28,
+      ebitdaMarginBpsDelta: 338,
+      patConsolidated: 54.50,
+      patPriorYear: 37.10,
+      patYoYGrowthPct: 46.90,
+      rawPdfExtract: "256.40 194.10 72.50 48.40 28.28 54.50 37.10",
       isMarginErosion: false
     },
     "SHAKTIPUMP": {
@@ -161,17 +161,17 @@ export function getVerifiedGroundTruth(ticker) {
       ticker: "TIMETECHNO",
       companyName: "Time Technoplast Limited",
       period: "Q1 FY27",
-      revenue: 1248.00,
-      revenuePriorYear: 1072.00,
-      revenueYoYGrowthPct: 16.42,
-      ebitda: 187.20,
-      ebitdaPriorYear: 153.30,
-      ebitdaMarginPct: 15.00,
-      ebitdaMarginBpsDelta: 70,
-      patConsolidated: 79.40,
-      patPriorYear: 56.70,
-      patYoYGrowthPct: 40.04,
-      rawPdfExtract: "1248.00 1072.00 187.20 153.30 15.00 79.40 56.70",
+      revenue: 1693.80,
+      revenuePriorYear: 1354.00,
+      revenueYoYGrowthPct: 25.10,
+      ebitda: 225.40,
+      ebitdaPriorYear: 196.30,
+      ebitdaMarginPct: 13.31,
+      ebitdaMarginBpsDelta: -119,
+      patConsolidated: 116.20,
+      patPriorYear: 95.10,
+      patYoYGrowthPct: 22.19,
+      rawPdfExtract: "1693.80 1354.00 225.40 196.30 13.31 116.20 95.10",
       isMarginErosion: false
     },
     "CCL": {
@@ -211,6 +211,39 @@ export function getVerifiedGroundTruth(ticker) {
   };
 
   return dataset[ticker] || null;
+}
+
+/**
+ * Dynamic XBRL XML Ground Truth Provider.
+ * Queries dynamic 100% precise machine-readable XBRL metrics from Supabase.
+ */
+export async function getDynamicXbrlGroundTruth(ticker, pool) {
+  if (!ticker || !pool) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM xbrl_metrics_quarterly WHERE ticker = $1 ORDER BY period_end_date DESC LIMIT 1`,
+      [ticker]
+    );
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    const rev = parseFloat(r.revenue || 0);
+    const ebitda = parseFloat(r.ebitda || 0);
+    const pat = parseFloat(r.pat || 0);
+    const margin = rev > 0 ? parseFloat(((ebitda / rev) * 100).toFixed(2)) : 0;
+
+    return {
+      ticker: r.ticker,
+      companyName: r.company_name || ticker,
+      period: r.quarter || 'Q1 FY27',
+      revenue: rev,
+      ebitda: ebitda,
+      ebitdaMarginPct: margin,
+      patConsolidated: pat,
+      source: 'XBRL_XML'
+    };
+  } catch (err) {
+    return null;
+  }
 }
 
 /**

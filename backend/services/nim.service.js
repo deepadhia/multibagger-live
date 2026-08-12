@@ -69,6 +69,11 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     4. SEGMENT RED FLAG DETECTION: Extract all segment-wise results (Revenue & EBIT) and explicitly highlight any segment experiencing a YoY revenue/EBIT decline > 20% as a Segment Red Flag (e.g. Segment A EBIT declining > 20% YoY). NEVER claim 'no red flags' when a major segment collapses YoY.
     5. MULTI-SEGMENT THESIS RESPECT: NEVER claim a company has single-segment operations or no diversification when the investment thesis or filing explicitly details multiple verticals (e.g., Real Estate + Data Center + Cloud Services under Ashok Cloud).
     6. ANTI-HALLUCINATION: NEVER report future quarter numbers (e.g. Q2 FY27) as actual achieved performance. Label any forward figure as 'Management Target/Guidance', never actuals.
+    7. DYNAMIC UNIT NORMALIZATION ENGINE (Lakhs / Millions / Crores to Crores): Always check the table header for unit indicators such as '(₹ in Lakhs)', '(₹ in Millions)', '(₹ in Mn)', or '(₹ in Crores)'. Convert ALL absolute monetary values (Revenue, EBITDA, PAT) into standardized INR CRORES (₹ Cr):
+       • If table is in '₹ in Lakhs': Divide all numbers by 100 to get ₹ Cr (e.g. 26,100 Lakhs = ₹261.0 Cr).
+       • If table is in '₹ in Millions' / '₹ in Mn': Divide all numbers by 10 to get ₹ Cr (e.g. 16,938 Mn = ₹1,693.8 Cr, 2,564 Mn = ₹256.4 Cr).
+       • If table is in '₹ in Crores': Keep as-is.
+       • ALWAYS label monetary values with '₹ Cr' (e.g. 'Revenue: ₹1,693.8 Cr'). NEVER output raw unscaled Millions or Lakhs as Crores.
 
     ── Strict Content Rules (Zero Boilerplate) ──
     1. ABSOLUTELY FORBID generic fluff or empty advice such as "Investors should review the results to assess progress", "The company's performance is key", "Check the details to decide". This is useless and forbidden.
@@ -109,7 +114,9 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
       "is_rescheduled": true | false,
       "is_agm": true | false,
       "agm_status": "scheduled" | "completed" | null,
-      "agm_highlights": "Bulleted highlights of the AGM if completed, or null"
+      "agm_highlights": "Bulleted highlights of the AGM if completed, or null",
+      "thesis_catalyst_metrics": "Key quantitative metrics aligned with Primary Investment Thesis (e.g. Data Center MW, Order Backlog ₹Cr, Export Mix %)",
+      "stock_price_drivers": "Key share-price moving catalysts (Free Cash Flow FCF ₹Cr, Debtor/Working Capital Days, Net Debt/Cash ₹Cr, Capacity Commissioning Dates)"
     }
 
     Announcement Text:
