@@ -113,13 +113,14 @@ async function runNimPrompt(systemPrompt, userPrompt, temperature = 0.05) {
   const MAX_RETRIES = 3;
   const BASE_DELAY_MS = 2000;
   const MODELS = [
-    "meta/llama-3.1-70b-instruct"
+    "meta/llama-3.1-70b-instruct",
+    "meta/llama-3.3-70b-instruct"
   ];
   let lastErr;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout for concall synthesis
+    const timeoutId = setTimeout(() => controller.abort(), 180000); // 180s timeout for heavy multi-prompt synthesis
     const currentModel = MODELS[(attempt - 1) % MODELS.length];
 
     try {
@@ -137,7 +138,7 @@ async function runNimPrompt(systemPrompt, userPrompt, temperature = 0.05) {
             { role: "user", content: userPrompt }
           ],
           temperature,
-          max_tokens: 1200
+          max_tokens: 2048
         }),
       });
 
