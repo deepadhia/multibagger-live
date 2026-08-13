@@ -159,7 +159,7 @@ async function runFullThoroughAugustReplay() {
 
   const startTime = Date.now();
   const extractedDataList = [];
-  const processedTickers = new Set();
+  const processedTickers = new Set(core11Tickers); // Ensures all 11 core holdings get regenerated
   let count = 0;
 
   for (const item of announcements) {
