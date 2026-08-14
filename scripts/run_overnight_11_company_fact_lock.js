@@ -34,6 +34,15 @@ async function runOvernight11CompanyFactLock() {
 
   const startTime = new Date();
 
+  // Create initial progress placeholder file immediately so it exists on disk at startup
+  fs.mkdirSync('audit_output', { recursive: true });
+  const initialPlaceholder = `# 🧪 11-Company Overnight Fact Lock DB Read-Back Audit Report\n\n` +
+    `*Started At: ${startTime.toLocaleString('en-IN')}*\n` +
+    `*Status: ⏳ IN PROGRESS (Regenerating 44 Syntheses across 11 Companies...)*\n\n` +
+    `> **DEPLOYMENT GATE RULE**: 352/352 Individual Gate Evaluations MUST Pass before origin/main commit is permitted.\n\n` +
+    `*The audit results will populate below automatically as each company completes execution.*\n`;
+  fs.writeFileSync('audit_output/11_COMPANY_OVERNIGHT_AUDIT_REPORT.md', initialPlaceholder, 'utf-8');
+
   // Phase 1: Sequential Fact-Locked Synthesis Generation
   for (const ticker of ALL_11_TICKERS) {
     console.log(`\n[SYNTHESIS SWEEP] Regenerating 4 Fact-Locked Syntheses for ${ticker}...`);
