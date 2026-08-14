@@ -221,6 +221,60 @@ The app will be available at `http://localhost:5173`.
 - **Announcements**: On each stock’s detail page, an **Announcements** tab lists downloaded filings (earnings, concall transcripts, investor presentations) by quarter and type with **View** links. Use **Download filings** to fetch from NSE & Screener.
 - **Google Drive upload** (optional): Upload announcements to a Drive folder in a structured layout. See [docs/GOOGLE_DRIVE_SETUP.md](docs/GOOGLE_DRIVE_SETUP.md) for creating a service account and API key.
 
+## Institutional Research Architecture & Master Roadmap
+
+`multibagger-live` is structured around a strict 4-Phase Institutional Research Architecture designed to transition AI equity research from speculative text summarization to **auditable, deterministic, evidence-grounded investment decision infrastructure**.
+
+```text
+               RAW SOURCES (SEBI LODR Filings / Concall Transcripts)
+                                        │
+                                        ▼
+                   PHASE 1 — FIDELITY & FACT LOCK [🟢 FROZEN]
+                   • Fact Registry & Disambiguation Rules
+                   • 8 Machine Pre-LLM Contamination Filters
+                   • 352/352 DB Read-Back Regression Audit (100% PASS)
+                                        │
+                                        ▼
+                   PHASE 2 — EVIDENCE GOVERNANCE & LINEAGE [🟢 FROZEN]
+                   • Cryptographic SHA-256 Document & Location Hashes
+                   • 3-Dimensional Classification (Claim Type, Provenance, Verification)
+                   • Relational Claim Graph Edges (claim_dependencies)
+                   • Unit-Aware Metric Reconciliation Policy (Rounding vs Material Conflict)
+                   • Fail-Closed Replay Engine (replayClaimLineage())
+                   • Engineering Gate (6/6 Failure Injection Tests PASS)
+                   • Coverage Gate (11/11 Holdings x 100% Material Claims Replayable)
+                                        │
+                                        ▼
+                   PHASE 3 — DETERMINISTIC THESIS ENGINE [🔴 UPCOMING]
+                   • Primary Evidence -> Verified Claims -> Deterministic Metrics -> Thesis State
+                   • 4 Explicit Thesis States (Strengthening | Stable | Weakening | Broken)
+                   • Longitudinal Multi-Quarter Trajectories (Q1 -> Q2 -> Q3 -> Q4)
+                                        │
+                                        ▼
+                   PHASE 4 — VALUATION & EXPECTATIONS LAYER [🔴 UPCOMING]
+                   • Implied Market Growth Expectations vs Valuation Multiples
+                   • Human-Controlled Decision Journal (BUY / HOLD / WATCH / TRIM / EXIT)
+```
+
+### 1. Phase 1: Fact Lock & Fidelity Engine (🟢 Frozen)
+* **Goal**: Prevent synthesis layer from introducing metric, period, label, or guidance errors on canonical facts.
+* **Architecture**: Evaluates 8 machine pre-synthesis gates across all 4 institutional prompt types.
+* **Verification Status**: **352/352 Gate Evaluations Passed (100% 🟢)** on live Supabase DB Read-Back across all 11 core portfolio holdings (`INOXINDIA`, `ANANTRAJ`, `SJS`, `TIMETECHNO`, `SKIPPER`, `GRAVITA`, `CCL`, `LUMAXTECH`, `HBLENGINE`, `QPOWER`, `SHAKTIPUMP`).
+
+### 2. Phase 2: Evidence Governance & Auditable Claim Lineage (🟢 Frozen)
+* **Goal**: Prove exact source provenance for every material investment claim.
+* **Hard Contract**: *"No material claim gets VERIFIED unless its evidence chain can be deterministically replayed and passes validation."*
+* **Key Components**:
+  - **Cryptographic Hashes**: SHA-256 document version hash (`source_document_hash`) and location hash (`source_location_hash`).
+  - **3-Dimensional Separated Schema**: Claim Type (`FINANCIAL_FACT`, `MANAGEMENT_CLAIM`, `DERIVED_FACT`, etc.), Evidence Provenance (`PRIMARY_SOURCE`, `MANAGEMENT_SOURCE`, etc.), Verification Status (`VERIFIED`, `ROUNDING_VARIANCE`, `MATERIAL_CONFLICT`, `UNVERIFIED`).
+  - **Relational Claim Graph Edge Table (`claim_dependencies`)**: Recursive SQL graph traversals for derived metrics (e.g. EBITDA Margin Delta).
+  - **Fail-Closed Security Philosophy**: Replay fails closed (`replay_status: BLOCKED`, `verification_status: UNVERIFIED`) on hash mismatch, entity mismatch, period mismatch, material conflict, or broken dependency links.
+* **Release Gates**:
+  - **Engineering Gate**: 🟢 **6/6 Automated Failure Injection Tests PASSED** (`Source Identity`, `Location Tracking`, `Entity/Period Isolation`, `Metric Reconciliation`, `Recursive Graph Replay`, `Tamper Fail-Closed`).
+  - **Coverage Gate**: 🟢 **11/11 Holdings × 100% Material Claims Replayable** (`audit_output/PHASE_2_LINEAGE_COVERAGE_REPORT.md`).
+
+---
+
 ## V12 High-Conviction Truth Layer
 
 The platform now operates on a sophisticated **V12 Truth Layer**, upgrading from speculative AI inference to high-fidelity, mechanically verified official data.
