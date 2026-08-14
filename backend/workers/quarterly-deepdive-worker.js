@@ -951,16 +951,21 @@ Provide a comprehensive, professional institutional equity research analysis fol
         let attemptPrompt = fullPrompt;
 
         for (let attempt = 1; attempt <= 3; attempt++) {
+          console.log(`[SYNTHESIS RE-PROMPT] Attempt ${attempt}/3 executing NIM LLM generation for ${ticker} (${p.title})...`);
           const rawOutput = await runNimPrompt(
             "You are a Senior Managing Director & Chief Equity Strategist at a top-tier institutional fund. You provide 100% evidence-anchored, zero-hallucination institutional equity research reports.",
             attemptPrompt
           );
 
-          if (!rawOutput || rawOutput.length < 50) continue;
+          if (!rawOutput || rawOutput.length < 50) {
+            console.warn(`[SYNTHESIS RE-PROMPT] Attempt ${attempt}/3 returned empty or short output for ${ticker}. Retrying...`);
+            continue;
+          }
 
-          // Fact Lock Claim Validation
+          console.log(`[FACT LOCK VALIDATING] Attempt ${attempt}/3 evaluating 8 Machine Gates for ${ticker}...`);
           const validation = validateSynthesisClaims(rawOutput, factRegistry);
           if (validation.valid) {
+            console.log(`[FACT LOCK PASSED] Attempt ${attempt}/3 passed all 8 Machine Gates for ${ticker}!`);
             finalReportContent = rawOutput;
             break;
           } else {
