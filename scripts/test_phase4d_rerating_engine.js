@@ -140,7 +140,15 @@ async function runPhase4DSuite() {
 
   // Generate Report Artifact in brain directory
   const brainDir = "C:\\Users\\DeepJAdhia\\.gemini\\antigravity-ide\\brain\\9d9ad3b6-21ed-4c70-912c-ed9fff2fd196";
-  const reportPath = path.join(brainDir, "PHASE_4D_EXECUTION_SCENARIO_GATE_REPORT.md");
+  let reportPath;
+  try {
+    if (!fs.existsSync(brainDir)) {
+      fs.mkdirSync(brainDir, { recursive: true });
+    }
+    reportPath = path.join(brainDir, "PHASE_4D_EXECUTION_SCENARIO_GATE_REPORT.md");
+  } catch (e) {
+    reportPath = path.join(process.cwd(), "PHASE_4D_EXECUTION_SCENARIO_GATE_REPORT.md");
+  }
 
   const reportMarkdown = `# 📊 EXECUTION REPORT: PHASE 4D EXECUTION SCENARIO PROBABILITY SHIFT GATE
 

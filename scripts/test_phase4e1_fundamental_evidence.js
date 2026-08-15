@@ -149,7 +149,16 @@ async function runPhase4E1FundamentalEvidenceAudit() {
 
   // Generate Audit Report Artifact
   const brainDir = "C:\\Users\\DeepJAdhia\\.gemini\\antigravity-ide\\brain\\9d9ad3b6-21ed-4c70-912c-ed9fff2fd196";
-  const reportPath = path.join(brainDir, "PHASE_4E1_FUNDAMENTAL_EVIDENCE_REPORT.md");
+  let reportPath;
+  if (process.env.ARTIFACTS_DIR && fs.existsSync(process.env.ARTIFACTS_DIR)) {
+    reportPath = path.join(process.env.ARTIFACTS_DIR, "PHASE_4E1_FUNDAMENTAL_EVIDENCE_REPORT.md");
+  } else if (fs.existsSync(brainDir)) {
+    reportPath = path.join(brainDir, "PHASE_4E1_FUNDAMENTAL_EVIDENCE_REPORT.md");
+  } else {
+    const localArtifacts = path.join(process.cwd(), "artifacts");
+    if (!fs.existsSync(localArtifacts)) fs.mkdirSync(localArtifacts, { recursive: true });
+    reportPath = path.join(localArtifacts, "PHASE_4E1_FUNDAMENTAL_EVIDENCE_REPORT.md");
+  }
 
   const reportMarkdown = `# 📊 AUDIT REPORT: PHASE 4E.1 EXPECTATION-RELATIVE FUNDAMENTAL EVIDENCE MAPPING
 
