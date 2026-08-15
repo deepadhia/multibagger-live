@@ -336,11 +336,53 @@ The platform features an automated, anti-confirmation-bias thesis audit engine:
 - **Source Attribution**: Injects `Source:` labels alongside pre-processed metrics to guarantee the AI correctly attributes values.
 - **Smart Toggles**: UI controls to toggle sections of the prompt (Ownership, Valuations, Previous Verdict) to actively manage the context window size and precision.
 
-### 5. V10 Legacy Features
-- **Multibagger Mode**: Protects high-conviction winners from premature exits.
-- **Penalty Normalization**: Consolidates overlapping penalties to prevent artificial score collapse.
-- **Portfolio Awareness**: Flags theme concentration bounds.
-- **Skepticism Discipline**: Actively penalizes structurally perfect management transcripts missing natural business friction.
+### 6. Phase 4E/4F Institutional Decision Journal & Management Evidence Layer
+The platform implements an institutional live research loop that decouples fundamental evidence classification from human position-sizing decisions:
+
+```text
+       QUARTERLY FILING / AGM / CONCALL TRANSCRIPT
+                            ↓
+                    MANAGEMENT CLAIM
+  (Exact Quote, Lineage, Thesis Driver, Expected Timeframe, Measurable Target)
+                            ↓
+  ┌───────────────────────────────────────────────────┐
+  │ EPISTEMIC GUARDRAIL: Claim ≠ Operating Reality    │
+  │ (Management optimism CANNOT increase conviction)  │
+  └─────────────────────────┬─────────────────────────┘
+                            ↓
+               PRIMARY OPERATING AUDIT
+  (Revenue, PAT, Margins, Spreads, Order Intake, Capacity Intimation, Cash Flow)
+                            ↓
+            CLAIM-TO-DELIVERY RECONCILIATION
+  (NEW ➔ REAFFIRMED ➔ DELIVERED ➔ DELAYED ➔ MISSED ➔ WITHDRAWN/CHANGED)
+                            ↓
+  ┌───────────────────────────────────────────────────┐
+  │ LONGITUDINAL CLAIM CREDIBILITY LEDGER             │
+  │ • Single Temporary Miss + Plausible Rationale     │
+  │ • Repeated Misses + Shifting Excuses = Decay      │
+  └─────────────────────────┬─────────────────────────┘
+                            ↓
+  ┌───────────────────────────────────────────────────┐
+  │ 4-QUESTION DECISION JOURNAL FRAMEWORK (PHASE 4F)  │
+  │ 1. Is the underlying thesis intact?               │
+  │ 2. Is the market punishment reason resolving?     │
+  │ 3. Are management milestones being delivered?     │
+  │ 4. Does current valuation leave asymmetry?        │
+  └─────────────────────────┬─────────────────────────┘
+                            ↓
+              CANONICAL EVIDENCE STATES
+  • EVIDENCE_SUPPORTS_RECONSIDERATION  (e.g., CCL, Skipper, Gravita)
+  • WAITING_FOR_MARKET_RECOGNITION     (Compounding ahead of price recognition)
+  • STAGED_OBSERVATION_WITH_RESERVATIONS (Active balance sheet/dilution risks)
+  • REASSESS_EXECUTION_DO_NOT_ADD      (Operating deterioration; strictly do not add)
+  • THESIS_RESTRUCTURED                (Structural demerger / corporate split)
+```
+
+- **Three Temporal Research Clocks**:
+  - **Quarterly Clock**: Results filing $\rightarrow$ Full thesis audit and concern resolution check.
+  - **Mid-Quarter Event Clock**: Order wins, QIP, capex, demerger filings $\rightarrow$ Targeted driver updates.
+  - **Long-Term Promise Clock**: AGM multi-year targets (e.g. Vision 2028) $\rightarrow$ Multi-quarter credibility tracking.
+- **Longitudinal Replay Suite (`scripts/run_longitudinal_replay.js`)**: Evaluates quarter-by-quarter point-in-time decisions with zero look-ahead bias across 6M/12M forward outcomes, recording decision quality and knowable failure rates.
 
 ## Database
 
