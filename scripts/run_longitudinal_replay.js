@@ -34,13 +34,48 @@ export function computeSha256(data) {
   return crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
 }
 
-// Database historical price query helper
-async function getHistoricalPriceOnDate(stockId, targetDateStr) {
+// Cache for NSE historical data to prevent duplicate network calls
+const nseHistoryCache = new Map();
+
+async function getHistoricalPriceOnDate(ticker, stockId, targetDateStr) {
+  const symbols = TICKER_NSE_MAP[ticker] || [`${ticker}.NS`, `${ticker}.BO`];
+  
+  // 1. Try Live NSE/Yahoo Historical Series first
+  if (!nseHistoryCache.has(ticker)) {
+    for (const sym of symbols) {
+      try {
+        const history = await fetchYahooHistorical(sym);
+        if (history && history.length > 0) {
+          nseHistoryCache.set(ticker, history);
+          break;
+        }
+      } catch (e) {}
+    }
+  }
+
+  const cachedHistory = nseHistoryCache.get(ticker);
+  if (cachedHistory && cachedHistory.length > 0) {
+    const targetTime = new Date(targetDateStr).getTime();
+    let best = null;
+    for (const item of cachedHistory) {
+      const itemTime = new Date(item.date).getTime();
+      if (itemTime <= targetTime) {
+        if (!best || itemTime > new Date(best.date).getTime()) {
+          best = item;
+        }
+      }
+    }
+    if (best) {
+      return { price: parseFloat(best.price), date: best.date, source: 'NSE Direct' };
+    }
+  }
+
+  // 2. Fallback to PostgreSQL database if network unavailable
   const { rows } = await pool.query(
     "SELECT price, date FROM prices WHERE stock_id = $1 AND date <= $2 ORDER BY date DESC LIMIT 1",
     [stockId, targetDateStr]
   );
-  return rows[0] ? { price: parseFloat(rows[0].price), date: rows[0].date } : null;
+  return rows[0] ? { price: parseFloat(rows[0].price), date: rows[0].date, source: 'Database EOD' } : null;
 }
 
 // Live NSE price fetcher directly from NSE via Yahoo Finance
@@ -258,19 +293,19 @@ async function runLongitudinalReplay() {
       continue;
     }
 
-    // 1. T0 Price (Exact closing price on filing date from DB)
-    const t0PriceObj = await getHistoricalPriceOnDate(stockId, c.t0Date);
+    // 1. T0 Price (Exact closing price on filing date from NSE / DB)
+    const t0PriceObj = await getHistoricalPriceOnDate(c.ticker, stockId, c.t0Date);
     const t0Price = t0PriceObj ? t0PriceObj.price : null;
 
-    // 2. 6M Forward Price (+180 days from DB)
+    // 2. 6M Forward Price (+180 days from NSE / DB)
     const d6m = new Date(new Date(c.t0Date).getTime() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const p6mObj = await getHistoricalPriceOnDate(stockId, d6m);
+    const p6mObj = await getHistoricalPriceOnDate(c.ticker, stockId, d6m);
     const p6m = p6mObj ? p6mObj.price : null;
     const r6m = (t0Price && p6m) ? ((p6m - t0Price) / t0Price) * 100 : null;
 
-    // 3. 12M Forward Price (+365 days from DB)
+    // 3. 12M Forward Price (+365 days from NSE / DB)
     const d12m = new Date(new Date(c.t0Date).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const p12mObj = await getHistoricalPriceOnDate(stockId, d12m);
+    const p12mObj = await getHistoricalPriceOnDate(c.ticker, stockId, d12m);
     const p12m = p12mObj ? p12mObj.price : null;
     const r12m = (t0Price && p12m) ? ((p12m - t0Price) / t0Price) * 100 : null;
 
