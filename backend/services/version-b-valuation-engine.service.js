@@ -2,11 +2,15 @@
  * Phase 4F - Version B: Market-Implied Expectation-Gap & Historical Valuation Engine
  * 
  * Implements:
- * 1. LENS 1: Point-in-Time Trailing TTM Valuation Distribution (3Y, 5Y, 7Y with Depth Guards)
+ * 1. LENS 1: Point-in-Time Trailing Valuation Distribution (3Y, 5Y, 7Y with Depth Guards)
  * 2. LENS 2: Market-Implied 3-Year EPS Growth Expectations across Configurable Exit Scenarios [25x, 30x, 35x]
  * 3. Point-in-Time T0 Evidence Growth Synthesis (Derived strictly from data published <= T0)
  * 4. Expectation-Gap Calculation (Evidence CAGR - Implied CAGR)
  * 5. Position-Sizing & Valuation Reservation Governor (SEVERE, HIGH, MODERATE, LOW, INSUFFICIENT_HISTORY)
+ * 
+ * STRICT TERMINOLOGY & DENOMINATOR CONTRACT:
+ * - When 4 trailing quarterly XBRL filings are available published <= T: epsType = 'POINT_IN_TIME_TTM_4Q'
+ * - When falling back to the latest statutory audited annual report published <= T: epsType = 'POINT_IN_TIME_STATUTORY_ANNUAL'
  * 
  * STRICT EXPERIMENTAL RULE:
  * Version B attaches valuation context to the Version A signal; it NEVER mutates or overrides the underlying fundamental thesis diagnosis.
@@ -47,13 +51,14 @@ function computeConfigHash(scenarios) {
 }
 
 /**
- * Resolves Point-in-Time Trailing TTM Diluted EPS on date T
+ * Resolves Point-in-Time Trailing Diluted EPS strictly knowable on date T.
+ * Adheres to publication timestamp and period-end cutoff (zero lookahead).
  */
-export async function resolvePointInTimeTTMEPS(stockId, targetDateStr, pool) {
+export async function resolvePointInTimeEPS(stockId, targetDateStr, pool) {
   const targetDate = new Date(targetDateStr);
   
-  // 1. Check quarterly filings published <= targetDate
   if (pool) {
+    // 1. Check quarterly filings with period_end_date <= targetDate
     const { rows: quarters } = await pool.query(
       `SELECT quarter, period_end_date, eps_diluted, eps_basic, pat, revenue_from_ops
        FROM xbrl_metrics_quarterly
@@ -77,6 +82,7 @@ export async function resolvePointInTimeTTMEPS(stockId, targetDateStr, pool) {
       if (valid && ttmEps > 0) {
         return {
           eps: parseFloat(ttmEps.toFixed(2)),
+          epsType: 'POINT_IN_TIME_TTM_4Q',
           source: 'XBRL_TTM_4Q',
           quartersUsed: quarters.map(q => q.quarter),
           isPointInTime: true
@@ -84,27 +90,38 @@ export async function resolvePointInTimeTTMEPS(stockId, targetDateStr, pool) {
       }
     }
 
-    // 2. Fallback to statutory annual filing published strictly prior to targetYear
-    const valYear = targetDate.getFullYear();
+    // 2. Point-in-Time Annual Statutory Diluted EPS Fallback
+    // In India, audited annual results for FY(Y) (period ending March 31) are published by May 30 of year Y.
+    // An annual filing of year Y is strictly knowable if targetDate >= publication date (May 30 of year Y).
+    // If targetDate is before May 30 of year Y, only FY(Y-1) is knowable.
+    const calYear = targetDate.getFullYear();
+    const annualFilingPublicationCutoff = new Date(`${calYear}-05-30T00:00:00.000Z`);
+    const maxKnowableFilingYear = (targetDate.getTime() >= annualFilingPublicationCutoff.getTime()) ? calYear : calYear - 1;
+
     const { rows: annualRows } = await pool.query(
-      `SELECT year, eps FROM financial_metrics
-       WHERE stock_id = $1 AND year < $2
+      `SELECT year, eps, net_profit, revenue
+       FROM financial_metrics
+       WHERE stock_id = $1 AND year <= $2
        ORDER BY year DESC LIMIT 1`,
-      [stockId, valYear]
+      [stockId, maxKnowableFilingYear]
     );
 
     if (annualRows[0] && annualRows[0].eps && parseFloat(annualRows[0].eps) > 0) {
       return {
         eps: parseFloat(annualRows[0].eps),
-        source: `STATUTORY_ANNUAL_FY${annualRows[0].year}`,
+        epsType: 'POINT_IN_TIME_STATUTORY_ANNUAL',
+        source: `STATUTORY_AUDITED_FY${annualRows[0].year}`,
         quartersUsed: [`FY${annualRows[0].year}_ANNUAL`],
         isPointInTime: true
       };
     }
   }
 
-  return { eps: null, source: 'INSUFFICIENT_DATA', isPointInTime: false };
+  return { eps: null, epsType: 'INSUFFICIENT_DATA', source: 'INSUFFICIENT_DATA', isPointInTime: false };
 }
+
+// Backward compatibility alias
+export const resolvePointInTimeTTMEPS = resolvePointInTimeEPS;
 
 /**
  * Builds Multi-Window Historical P/E Distributions (3Y, 5Y, 7Y)
@@ -155,7 +172,9 @@ export async function buildMultiWindowPEDistributions(stockId, valuationDateStr,
     const peArray = [];
     for (const p of windowPrices) {
       const yr = new Date(p.date).getFullYear();
-      const eps = epsMap.get(yr) || epsMap.get(yr - 1);
+      const pDate = new Date(p.date);
+      const knowableYr = (pDate.getTime() >= new Date(`${yr}-05-30T00:00:00.000Z`).getTime()) ? yr : yr - 1;
+      const eps = epsMap.get(knowableYr) || epsMap.get(knowableYr - 1);
       if (eps && eps > 0) {
         const pe = parseFloat(p.price) / eps;
         if (pe >= 2 && pe <= 200) peArray.push(pe);
@@ -195,16 +214,17 @@ export async function evaluateVersionBValuation(params, pool) {
 
   const configHash = computeConfigHash(exitScenarios);
 
-  // 1. Resolve Point-in-Time Trailing TTM EPS
-  const pitEps = await resolvePointInTimeTTMEPS(stockId, valuationDate, pool);
-  const trailingTTMEps = pitEps.eps;
-  const trailingPE = (currentPrice && trailingTTMEps) ? parseFloat((currentPrice / trailingTTMEps).toFixed(1)) : null;
+  // 1. Resolve Point-in-Time Diluted EPS
+  const pitEps = await resolvePointInTimeEPS(stockId, valuationDate, pool);
+  const pointInTimeEPS = pitEps.eps;
+  const epsType = pitEps.epsType;
+  const valuationPE = (currentPrice && pointInTimeEPS) ? parseFloat((currentPrice / pointInTimeEPS).toFixed(1)) : null;
 
   // 2. Lens 1: Multi-Window Historical Trailing P/E Distribution
   const multiDist = await buildMultiWindowPEDistributions(stockId, valuationDate, pool);
-  const p3y = multiDist.windows?.['3Y']?.peValues ? calculatePercentile(multiDist.windows['3Y'].peValues, trailingPE) : null;
-  const p5y = multiDist.windows?.['5Y']?.peValues ? calculatePercentile(multiDist.windows['5Y'].peValues, trailingPE) : null;
-  const p7y = multiDist.windows?.['7Y']?.peValues ? calculatePercentile(multiDist.windows['7Y'].peValues, trailingPE) : null;
+  const p3y = multiDist.windows?.['3Y']?.peValues ? calculatePercentile(multiDist.windows['3Y'].peValues, valuationPE) : null;
+  const p5y = multiDist.windows?.['5Y']?.peValues ? calculatePercentile(multiDist.windows['5Y'].peValues, valuationPE) : null;
+  const p7y = multiDist.windows?.['7Y']?.peValues ? calculatePercentile(multiDist.windows['7Y'].peValues, valuationPE) : null;
 
   // 3. Lens 2: Market-Implied 3-Year EPS Growth Expectations
   const scenarioResults = [];
@@ -214,8 +234,8 @@ export async function evaluateVersionBValuation(params, pool) {
   for (const s of exitScenarios) {
     const requiredYear3EPS = currentPrice && s.multiple ? currentPrice / s.multiple : null;
     let implied3YCAGR = null;
-    if (requiredYear3EPS && trailingTTMEps && trailingTTMEps > 0) {
-      implied3YCAGR = Math.pow(requiredYear3EPS / trailingTTMEps, 1 / 3) - 1;
+    if (requiredYear3EPS && pointInTimeEPS && pointInTimeEPS > 0) {
+      implied3YCAGR = Math.pow(requiredYear3EPS / pointInTimeEPS, 1 / 3) - 1;
     }
 
     const impliedPct = implied3YCAGR !== null ? parseFloat((implied3YCAGR * 100).toFixed(1)) : null;
@@ -248,16 +268,16 @@ export async function evaluateVersionBValuation(params, pool) {
     reservationReason = `Listed history is ${multiDist.totalTradingDays} trading days (< 500 days). Rely on peer benchmarks and capacity execution milestones.`;
   } else if (p5y !== null && p5y >= 90 && negativeGapCount === exitScenarios.length) {
     valuationReservation = VALUATION_RESERVATIONS.SEVERE;
-    reservationReason = `Trailing P/E (${trailingPE}x) is at the ${p5y}th percentile (peak historical band) AND market-implied growth exceeds evidence-supported growth across ALL exit scenarios.`;
+    reservationReason = `Trailing P/E (${valuationPE}x) is at the ${p5y}th percentile (peak historical band) AND market-implied growth exceeds evidence-supported growth across ALL exit scenarios.`;
   } else if (p5y !== null && p5y >= 90 && negativeGapCount >= 2) {
     valuationReservation = VALUATION_RESERVATIONS.HIGH;
-    reservationReason = `Trailing P/E (${trailingPE}x) is at the ${p5y}th percentile AND market-implied growth exceeds evidence-supported growth across at least 2/3 exit scenarios. Elevated multiple compression risk.`;
+    reservationReason = `Trailing P/E (${valuationPE}x) is at the ${p5y}th percentile AND market-implied growth exceeds evidence-supported growth across at least 2/3 exit scenarios. Elevated multiple compression risk.`;
   } else if (p5y !== null && p5y <= 35 && positiveGapCount === exitScenarios.length) {
     valuationReservation = VALUATION_RESERVATIONS.LOW;
-    reservationReason = `Trailing P/E (${trailingPE}x) is at the ${p5y}th percentile (lower quartile) AND evidence-supported growth exceeds market-implied growth across ALL scenarios. Valuation is strongly supportive.`;
+    reservationReason = `Trailing P/E (${valuationPE}x) is at the ${p5y}th percentile (lower quartile) AND evidence-supported growth exceeds market-implied growth across ALL scenarios. Valuation is strongly supportive.`;
   } else if (p5y !== null && p5y >= 70) {
     valuationReservation = VALUATION_RESERVATIONS.MODERATE;
-    reservationReason = `Trailing P/E (${trailingPE}x) is at the ${p5y}th percentile. Demands execution delivery without excessive multiple expansion.`;
+    reservationReason = `Trailing P/E (${valuationPE}x) is at the ${p5y}th percentile. Demands execution delivery without excessive multiple expansion.`;
   }
 
   return {
@@ -265,8 +285,9 @@ export async function evaluateVersionBValuation(params, pool) {
     valuationDate,
     configHash,
     currentPrice,
-    trailingTTMEps,
-    trailingPE,
+    pointInTimeEPS,
+    epsType,
+    valuationPE,
     t0EvidenceGrowthRange: `${(t0EvidenceGrowthRange[0] * 100).toFixed(0)}% to ${(t0EvidenceGrowthRange[1] * 100).toFixed(0)}%`,
     lens1Historical: {
       totalTradingDays: multiDist.totalTradingDays,

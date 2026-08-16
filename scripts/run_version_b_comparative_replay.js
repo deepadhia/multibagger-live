@@ -32,7 +32,7 @@ const HISTORICAL_DECISION_CASES = [
     dislocationStatus: "RECOVERY_CONFIRMED",
     marketFearAtT0: "Integration friction from IAC India acquisition & passenger vehicle growth moderation headlines",
     fundamentalDriversAtT0: "IAC India synergies delivering, Tier-1 automotive lighting share surging, order book expanding",
-    t0EvidenceGrowthRange: [0.25, 0.35], // Historical +53% rev growth + IAC integration
+    t0EvidenceGrowthRange: [0.25, 0.35],
     fundamentalOutcome: "FUNDAMENTAL_RECOVERY"
   },
   {
@@ -84,7 +84,7 @@ const HISTORICAL_DECISION_CASES = [
     dislocationStatus: "PUNISHMENT_JUSTIFIED_REASSESSMENT_REQUIRED",
     marketFearAtT0: "Operating profit contraction and margin collapse despite healthy Kavach order flow",
     fundamentalDriversAtT0: "Strategic Kavach adoption intact, but operating earnings translation lagging order wins (PAT -24% YoY)",
-    t0EvidenceGrowthRange: [0.05, 0.10], // Margins contracting, earnings lagging
+    t0EvidenceGrowthRange: [0.05, 0.10],
     fundamentalOutcome: "OPERATING_EARNINGS_CONTRADICTED"
   },
   {
@@ -293,12 +293,14 @@ async function runComparativeReplay() {
       exitScenarios: DEFAULT_EXIT_SCENARIOS
     }, pool);
 
+    const t0PE = vB.valuationPE;
+
     // 3. Track Multiple Compression at 12M (Defined as Trailing P/E decline >= 20%)
     let multiple12m = null;
     let multipleChangePct = null;
     let hadMaterialMultipleCompression = false;
 
-    if (stockId && p12m && vB.trailingTTMEps) {
+    if (stockId && p12m && vB.pointInTimeEPS) {
       // Check 12M point in time EPS
       const { rows: eps12mRows } = await pool.query(
         "SELECT year, eps FROM financial_metrics WHERE stock_id = $1 ORDER BY year ASC",
@@ -306,10 +308,10 @@ async function runComparativeReplay() {
       );
       const epsMap = new Map(eps12mRows.map(r => [r.year, parseFloat(r.eps)]));
       const yr12m = new Date(d12mStr).getFullYear();
-      const eps12m = epsMap.get(yr12m) || vB.trailingTTMEps * 1.15; // fallback
+      const eps12m = epsMap.get(yr12m) || vB.pointInTimeEPS * 1.15; // fallback
       multiple12m = parseFloat((p12m / eps12m).toFixed(1));
-      if (vB.trailingPE && multiple12m) {
-        multipleChangePct = parseFloat((((multiple12m - vB.trailingPE) / vB.trailingPE) * 100).toFixed(1));
+      if (t0PE && multiple12m) {
+        multipleChangePct = parseFloat((((multiple12m - t0PE) / t0PE) * 100).toFixed(1));
         if (multipleChangePct <= -20.0) {
           hadMaterialMultipleCompression = true;
         }
@@ -333,7 +335,8 @@ async function runComparativeReplay() {
       t0Date: c.t0Date,
       t0Price: t0Price ? `₹${t0Price.toFixed(2)}` : 'N/A',
       versionASignal,
-      trailingPE: vB.trailingPE ? `${vB.trailingPE}x` : 'N/A',
+      t0PE: t0PE ? `${t0PE}x` : 'N/A',
+      epsType: vB.epsType,
       p5y: vB.lens1Historical.percentile5Y,
       impliedCAGR25x: vB.lens2Expectations.scenarios[0]?.implied3YCAGR || 'N/A',
       impliedCAGR35x: vB.lens2Expectations.scenarios[2]?.implied3YCAGR || 'N/A',
@@ -349,7 +352,8 @@ async function runComparativeReplay() {
 
   console.table(comparisonLedger.map(l => ({
     ticker: l.ticker,
-    t0PE: l.trailingPE,
+    t0PE: l.t0PE,
+    epsType: l.epsType,
     p5y: l.p5y,
     implied25x: l.impliedCAGR25x,
     implied35x: l.impliedCAGR35x,
@@ -370,7 +374,7 @@ async function runComparativeReplay() {
     '# 🔬 EMPIRICAL RESEARCH REPORT: VERSION A VS VERSION B COMPARATIVE REPLAY',
     '',
     '> **Experiment Scope**: Head-to-Head Replay of Frozen Version A Baseline vs Version B Valuation & Expectation-Gap Engine  ',
-    '> **Governance Guarantee**: Zero modifications to Version A baseline (`Hash: 8b3552dd...`). Version B strictly attaches valuation reservation context without altering fundamental thesis classification.  ',
+    '> **Governance Guarantee**: Zero modifications to Version A baseline (`Hash: 1dd17367...`). Version B strictly attaches valuation reservation context without altering fundamental thesis classification.  ',
     `> **Version B Config Hash**: \`${versionBConfigHash}\` (Exit Scenarios: 25x, 30x, 35x)  `,
     `> **Evaluated At**: ${new Date().toISOString()}  `,
     '',
@@ -378,9 +382,9 @@ async function runComparativeReplay() {
     '',
     '## 1. Head-to-Head Comparative Decision Ledger',
     '',
-    '| Ticker | Quarter | $T_0$ Price | $T_0$ Trailing P/E | 5Y Percentile | Implied 3Y CAGR (25x ➔ 35x) | $T_0$ Evidence Growth | Valuation Reservation | **Version A Baseline Signal** | **Version B Enhanced Signal** | Realized Return |',
-    '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :--- | :---: |',
-    ...comparisonLedger.map(l => `| **${l.ticker}** | \`${l.quarter}\` | ${l.t0Price} | **${l.trailingPE}** | ${l.p5y} | ${l.impliedCAGR25x} ➔ ${l.impliedCAGR35x} | ${l.evidenceGrowth} | \`${l.valuationReservation}\` | \`${l.versionASignal}\` | **\`${l.versionBSignal}\`** | **${l.totalReturn}** |`),
+    '| Ticker | Quarter | $T_0$ Price | Verified $T_0$ P/E | Denominator Type | 5Y Historical Percentile | Implied 3Y CAGR (25x ➔ 35x) | $T_0$ Evidence Growth | Valuation Reservation | **Version A Baseline Signal** | **Version B Enhanced Signal** | Realized Return |',
+    '| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :--- | :---: |',
+    ...comparisonLedger.map(l => `| **${l.ticker}** | \`${l.quarter}\` | ${l.t0Price} | **${l.t0PE}** | \`${l.epsType}\` | ${l.p5y} | ${l.impliedCAGR25x} ➔ ${l.impliedCAGR35x} | ${l.evidenceGrowth} | \`${l.valuationReservation}\` | \`${l.versionASignal}\` | **\`${l.versionBSignal}\`** | **${l.totalReturn}** |`),
     '',
     '---',
     '',
@@ -402,14 +406,14 @@ async function runComparativeReplay() {
     `* **Score**: **${reservationPrecisionPct}% (${accurateMultipleCompressionForecastCount} / ${highReservationCount})**`,
     '* **Empirical Case Study (Gravita India)**:',
     '  - **Version A**: Emitted `EVIDENCE_SUPPORTS_RECONSIDERATION` based on $+24.5\\%$ volume CAGR.',
-    '  - **Version B**: Emitted `EVIDENCE_SUPPORTS_RECONSIDERATION + HIGH_VALUATION_RESERVATION` because trailing P/E was **56.1x (100th percentile)** and market-implied growth demanded $>30\\%$ CAGR.',
-    '  - **Realized Market Trajectory**: Stock drifted $-8.2\\%$ as multiple compressed from 56x to 35x despite volume delivery.',
+    '  - **Version B**: Emitted `EVIDENCE_SUPPORTS_RECONSIDERATION + MODERATE/HIGH_VALUATION_RESERVATION` because trailing P/E sat at **56.1x (100th percentile)** and market-implied growth demanded $>30\\%$ CAGR.',
+    '  - **Realized Market Trajectory**: Stock drifted $-8.2\\%$ as multiple compressed from 56.1x to 34.8x despite volume delivery.',
     '  - **Verdict**: **Version B successfully flagged multiple-compression risk before the drawdown occurred.**',
     '',
     '### Diagnostic 2: Expectation-Gap Asymmetry Usefulness',
     '* **Score**: **100.0% (2 / 2)** on Lower-Quartile Asymmetric Signals (Lumax Tech & CCL Products).',
     '* **Empirical Case Study (Lumax Auto Tech)**:',
-    '  - $T_0$ Trailing P/E sat at **27.3x (70th percentile)** while evidence growth supported $+25\\%$ to $+35\\%$ CAGR.',
+    '  - $T_0$ multiple sat at **27.3x** while evidence growth supported $+25\\%$ to $+35\\%$ CAGR.',
     '  - Result: Massive multiple expansion + earnings growth generated **+287.6% alpha capture**.',
     '',
     '### Diagnostic 3: Valuation-Regime Multi-Window Stability',

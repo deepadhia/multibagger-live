@@ -229,37 +229,42 @@ The app will be available at `http://localhost:5173`.
                RAW SOURCES (SEBI LODR Filings / Concall Transcripts)
                                         │
                                         ▼
-                   PHASE 1 — FIDELITY & FACT LOCK [🟢 FROZEN]
-                   • Fact Registry & Disambiguation Rules
-                   • 8 Machine Pre-LLM Contamination Filters
-                   • 352/352 DB Read-Back Regression Audit (100% PASS)
+                    PHASE 1 — FIDELITY & FACT LOCK [🟢 FROZEN]
+                    • Fact Registry & Disambiguation Rules
+                    • 8 Machine Pre-LLM Contamination Filters
+                    • 352/352 DB Read-Back Regression Audit (100% PASS)
                                         │
                                         ▼
-                   PHASE 2 — EVIDENCE GOVERNANCE & LINEAGE [🟢 FROZEN]
-                   • Cryptographic SHA-256 Document & Location Hashes
-                   • 3-Dimensional Classification (Claim Type, Provenance, Verification)
-                   • Relational Claim Graph Edges (claim_dependencies)
-                   • Unit-Aware Metric Reconciliation Policy (Rounding vs Material Conflict)
-                   • Fail-Closed Replay Engine (replayClaimLineage())
-                   • Engineering Gate (6/6 Failure Injection Tests PASS)
-                   • Coverage Gate (11/11 Holdings x 100% Material Claims Replayable)
+                    PHASE 2 — EVIDENCE GOVERNANCE & LINEAGE [🟢 FROZEN]
+                    • Cryptographic SHA-256 Document & Location Hashes
+                    • 3-Dimensional Classification (Claim Type, Provenance, Verification)
+                    • Relational Claim Graph Edges (claim_dependencies)
+                    • Unit-Aware Metric Reconciliation Policy (Rounding vs Material Conflict)
+                    • Fail-Closed Replay Engine (replayClaimLineage())
+                    • Engineering Gate (6/6 Failure Injection Tests PASS)
+                    • Coverage Gate (11/11 Holdings x 100% Material Claims Replayable)
                                         │
                                         ▼
-                   PHASE 3 — DETERMINISTIC THESIS ENGINE [🔴 UPCOMING]
-                   • Primary Evidence -> Verified Claims -> Deterministic Metrics -> Thesis State
-                   • 4 Explicit Thesis States (Strengthening | Stable | Weakening | Broken)
-                   • Longitudinal Multi-Quarter Trajectories (Q1 -> Q2 -> Q3 -> Q4)
+                    PHASE 3 — DETERMINISTIC THESIS ENGINE [🟢 FROZEN]
+                    • Primary Evidence -> Verified Claims -> Deterministic Metrics -> Thesis State
+                    • 4 Explicit Thesis States (Strengthening | Stable | Weakening | Broken)
+                    • Longitudinal Multi-Quarter Trajectories & Management Credibility Ledger
+                    • Point-in-Time Dislocation Classifier & Falsification Engine
                                         │
                                         ▼
-                   PHASE 4 — VALUATION & EXPECTATIONS LAYER [🔴 UPCOMING]
-                   • Implied Market Growth Expectations vs Valuation Multiples
-                   • Human-Controlled Decision Journal (BUY / HOLD / WATCH / TRIM / EXIT)
+                    PHASE 4 — VALUATION EXPECTATION ENGINE & REPLAY [🟢 FROZEN (RESEARCH_BASELINE_V1)]
+                    • Version A: Point-in-Time Fundamental Decision Diagnosis (88.9% Precision Baseline)
+                    • Version B Lens 1: Multi-Window Historical P/E Percentiles (3Y/5Y/7Y + Depth Guard)
+                    • Version B Lens 2: Market-Implied 3Y Growth Expectations across Scenarios [25x, 30x, 35x]
+                    • Expectation Asymmetry Synthesis (Evidence CAGR - Implied CAGR)
+                    • Sizing & Valuation Reservation Governor (SEVERE, HIGH, MODERATE, LOW, INSUFFICIENT_HISTORY)
+                    • Immutable Decision Journal & Double-Blind 6M/12M Forward Outcome Evaluator
 ```
 
 ### 1. Phase 1: Fact Lock & Fidelity Engine (🟢 Frozen)
 * **Goal**: Prevent synthesis layer from introducing metric, period, label, or guidance errors on canonical facts.
 * **Architecture**: Evaluates 8 machine pre-synthesis gates across all 4 institutional prompt types.
-* **Verification Status**: **352/352 Gate Evaluations Passed (100% 🟢)** on live Supabase DB Read-Back across all 11 core portfolio holdings (`INOXINDIA`, `ANANTRAJ`, `SJS`, `TIMETECHNO`, `SKIPPER`, `GRAVITA`, `CCL`, `LUMAXTECH`, `HBLENGINE`, `QPOWER`, `SHAKTIPUMP`).
+* **Verification Status**: **352/352 Gate Evaluations Passed (100% 🟢)** on live Supabase DB Read-Back across all core portfolio holdings (`INOXINDIA`, `ANANTRAJ`, `SJS`, `TIMETECHNO`, `SKIPPER`, `GRAVITA`, `CCL`, `LUMAXTECH`, `HBLENGINE`, `QPOWER`, `SHAKTIPUMP`).
 
 ### 2. Phase 2: Evidence Governance & Auditable Claim Lineage (🟢 Frozen)
 * **Goal**: Prove exact source provenance for every material investment claim.
@@ -272,6 +277,26 @@ The app will be available at `http://localhost:5173`.
 * **Release Gates**:
   - **Engineering Gate**: 🟢 **6/6 Automated Failure Injection Tests PASSED** (`Source Identity`, `Location Tracking`, `Entity/Period Isolation`, `Metric Reconciliation`, `Recursive Graph Replay`, `Tamper Fail-Closed`).
   - **Coverage Gate**: 🟢 **11/11 Holdings × 100% Material Claims Replayable** (`audit_output/PHASE_2_LINEAGE_COVERAGE_REPORT.md`).
+
+### 3. Phase 3: Deterministic Thesis Engine & Management Credibility (🟢 Frozen)
+* **Goal**: Isolate business reality from stock price fluctuations and management optimism.
+* **Key Components**:
+  - **Dislocation Classifier**: Measures whether price drop is an unjustified market fear or an operating execution break.
+  - **Thesis Survival Tracker**: Evaluates if the foundational multibagger driver is intact, delayed, or broken.
+  - **Management Credibility Engine**: Tracks historical promise fulfillment across quarters, applying decay penalties for repeated guidance misses.
+
+### 4. Phase 4: Valuation Expectations, Expectation Gap & Longitudinal Replay (🟢 Frozen)
+* **Goal**: Prevent entering fundamentally sound businesses at extreme multiples while identifying asymmetric opportunities.
+* **Key Components**:
+  - **Version A Baseline**: Evaluates pure fundamental conviction and concern resolution without valuation bias.
+  - **Version B Lens 1**: Evaluates point-in-time trailing P/E against rolling 3Y/5Y/7Y distributions with strict listing depth guards ($<500$ days $\rightarrow$ `INSUFFICIENT_HISTORY`).
+  - **Version B Lens 2**: Computes the exact 3-year EPS CAGR required by the current price across terminal exit multiples (25x, 30x, 35x).
+  - **Expectation Asymmetry**: Evaluates $\text{Evidence Growth} - \text{Market-Implied CAGR}$ to govern sizing and valuation reservations (`SEVERE`, `HIGH`, `MODERATE`, `LOW`).
+  - **Double-Blind Outcome Evaluator**: Evaluates 6M and 12M forward returns completely decoupled from $T_0$ decision generation.
+* **Verification & Replay Scripts**:
+  - `node scripts/run_longitudinal_replay.js --quick` (Unified Replay Suite)
+  - `node scripts/test_pe_denominator_regression.js` (Point-in-Time Anti-Lookahead Regression Suite)
+  - `node scripts/run_version_b_comparative_replay.js` (Version A vs Version B Comparative Engine)
 
 ---
 
