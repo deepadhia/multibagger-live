@@ -284,13 +284,13 @@ async function executeFullReplay() {
   if (!isQuick) {
     logProgress("📌 VERIFYING UPSTREAM PHASE TEST SUITES...");
     try {
-      execSync("node scripts/test_phase4b5_1_outcome_integrity.js", { stdio: 'inherit' });
-      execSync("node scripts/test_phase4e0_1_event_reaction_audit.js", { stdio: 'inherit' });
+      execSync("node scripts/test_phase4b5_point_in_time_backtest.js", { stdio: 'inherit' });
+      execSync("node scripts/test_phase4e0_event_dataset.js", { stdio: 'inherit' });
       execSync("node scripts/test_phase4e1_fundamental_evidence.js", { stdio: 'inherit' });
-      execSync("node scripts/test_phase4e2_dislocation_measurement.js", { stdio: 'inherit' });
-      execSync("node scripts/test_phase4e3_thesis_conviction.js", { stdio: 'inherit' });
+      execSync("node scripts/test_phase4e2_dislocation_vector.js", { stdio: 'inherit' });
+      execSync("node scripts/test_phase4e3_thesis_classifier.js", { stdio: 'inherit' });
       execSync("node scripts/test_phase4e4_thesis_survival.js", { stdio: 'inherit' });
-      execSync("node scripts/test_phase4e5_portfolio_audit.js", { stdio: 'inherit' });
+      execSync("node scripts/run_phase4e5_portfolio_audit.js", { stdio: 'inherit' });
       execSync("node scripts/test_phase4f_decision_journal.js", { stdio: 'inherit' });
       execSync("node scripts/test_pe_denominator_regression.js", { stdio: 'inherit' });
       logProgress("  • All Upstream Phase Gates & Anti-Lookahead Regression: PASS 🟢\n");
