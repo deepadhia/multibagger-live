@@ -139,17 +139,9 @@ async function runPhase4DSuite() {
   console.log("==================================================================");
 
   // Generate Report Artifact
-  let reportPath;
-  if (process.env.ARTIFACTS_DIR) {
-    if (!fs.existsSync(process.env.ARTIFACTS_DIR)) fs.mkdirSync(process.env.ARTIFACTS_DIR, { recursive: true });
-    reportPath = path.join(process.env.ARTIFACTS_DIR, "PHASE_4D_EXECUTION_SCENARIO_GATE_REPORT.md");
-  } else if (process.platform === 'win32' && fs.existsSync("C:\\Users\\DeepJAdhia\\.gemini\\antigravity-ide\\brain\\9d9ad3b6-21ed-4c70-912c-ed9fff2fd196")) {
-    reportPath = path.join("C:\\Users\\DeepJAdhia\\.gemini\\antigravity-ide\\brain\\9d9ad3b6-21ed-4c70-912c-ed9fff2fd196", "PHASE_4D_EXECUTION_SCENARIO_GATE_REPORT.md");
-  } else {
-    const artifactsDir = path.join(process.cwd(), "artifacts");
-    if (!fs.existsSync(artifactsDir)) fs.mkdirSync(artifactsDir, { recursive: true });
-    reportPath = path.join(artifactsDir, "PHASE_4D_EXECUTION_SCENARIO_GATE_REPORT.md");
-  }
+  const artifactsDir = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "artifacts");
+  if (!fs.existsSync(artifactsDir)) fs.mkdirSync(artifactsDir, { recursive: true });
+  const reportPath = path.join(artifactsDir, "PHASE_4D_EXECUTION_SCENARIO_GATE_REPORT.md");
 
   const reportMarkdown = `# 📊 EXECUTION REPORT: PHASE 4D EXECUTION SCENARIO PROBABILITY SHIFT GATE
 

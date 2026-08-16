@@ -665,22 +665,44 @@ export const HISTORICAL_REPLAY_DATASET = [
   }
 ];
 
+const artifactsDir = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "artifacts");
+if (!fs.existsSync(artifactsDir)) fs.mkdirSync(artifactsDir, { recursive: true });
+
+const progressLogPath = path.join(artifactsDir, "longitudinal_replay_progress.log");
+
+function logProgress(message) {
+  const timestamp = new Date().toISOString();
+  const formatted = `[${timestamp}] ${message}\n`;
+  try {
+    fs.appendFileSync(progressLogPath, formatted, 'utf-8');
+  } catch (e) {}
+  console.log(message);
+}
+
 async function runLongitudinalReplay() {
-  console.log("==================================================================");
-  console.log("=== 🔬 LONGITUDINAL MULTI-QUARTER HISTORICAL REPLAY (12 COS)   ===");
-  console.log("==================================================================\n");
+  // Clear / Initialize Log File
+  try {
+    const dir = path.dirname(progressLogPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(progressLogPath, `=== 🔬 LONGITUDINAL REPLAY PROGRESS LOG ===\nStarted: ${new Date().toISOString()}\n\n`, 'utf-8');
+  } catch (e) {}
+
+  logProgress("==================================================================");
+  logProgress("=== 🔬 LONGITUDINAL MULTI-QUARTER HISTORICAL REPLAY (12 COS)   ===");
+  logProgress("==================================================================\n");
 
   // 1. Verify upstream frozen gates
-  console.log("📌 VERIFYING UPSTREAM FROZEN GATES (4C, 4D, 4B.5.1, 4E.0.1, 4E.1, 4E.2, 4E.3, 4E.4, 4F)...");
-  execSync('node scripts/test_phase4f_decision_journal.js', { encoding: 'utf-8' });
-  console.log("  • Phase 4F Decision Journal & Upstream Gates: PASS 🟢 (100% Verified)\n");
+  logProgress("📌 [STEP 1/3] VERIFYING UPSTREAM FROZEN GATES (4C, 4D, 4B.5.1, 4E.0.1, 4E.1, 4E.2, 4E.3, 4E.4, 4F)...");
+  execSync('node scripts/test_phase4f_decision_journal.js', { stdio: 'inherit' });
+  logProgress("  • Phase 4F Decision Journal & Upstream Gates: PASS 🟢 (100% Verified)\n");
 
-  console.log("📌 EXECUTING POINT-IN-TIME FREEZES & OUTCOME RECONCILIATION...");
+  logProgress("📌 [STEP 2/3] EXECUTING POINT-IN-TIME FREEZES & OUTCOME RECONCILIATION...");
 
   const decisionLedger = [];
   const errorLedger = [];
 
-  for (const item of HISTORICAL_REPLAY_DATASET) {
+  for (let i = 0; i < HISTORICAL_REPLAY_DATASET.length; i++) {
+    const item = HISTORICAL_REPLAY_DATASET[i];
     const t0FrozenPayload = {
       ticker: item.ticker,
       quarter: item.quarter,
@@ -696,6 +718,8 @@ async function runLongitudinalReplay() {
     };
 
     const sha256Hash = computeSha256(t0FrozenPayload);
+
+    logProgress(`  [${i + 1}/${HISTORICAL_REPLAY_DATASET.length}] Hashing T0 for ${item.ticker} (${item.quarter}) -> SHA-256: ${sha256Hash.slice(0, 12)}... | State: ${item.systemStateAtT0} | Decision Quality: ${item.decisionQuality}`);
 
     decisionLedger.push({
       ticker: item.ticker,
@@ -771,17 +795,7 @@ async function runLongitudinalReplay() {
   // -------------------------------------------------------------------------
   // GENERATE INSTITUTIONAL REPORT ARTIFACT
   // -------------------------------------------------------------------------
-  const brainDir = "C:\\Users\\DeepJAdhia\\.gemini\\antigravity-ide\\brain\\9d9ad3b6-21ed-4c70-912c-ed9fff2fd196";
-  let reportPath;
-  if (process.env.ARTIFACTS_DIR && fs.existsSync(process.env.ARTIFACTS_DIR)) {
-    reportPath = path.join(process.env.ARTIFACTS_DIR, "PHASE_LONGITUDINAL_REPLAY_REPORT.md");
-  } else if (fs.existsSync(brainDir)) {
-    reportPath = path.join(brainDir, "PHASE_LONGITUDINAL_REPLAY_REPORT.md");
-  } else {
-    const localArtifacts = path.join(process.cwd(), "artifacts");
-    if (!fs.existsSync(localArtifacts)) fs.mkdirSync(localArtifacts, { recursive: true });
-    reportPath = path.join(localArtifacts, "PHASE_LONGITUDINAL_REPLAY_REPORT.md");
-  }
+  const reportPath = path.join(artifactsDir, "PHASE_LONGITUDINAL_REPLAY_REPORT.md");
 
   const reportMarkdown = `# 📊 INSTITUTIONAL REPORT: LONGITUDINAL MULTI-QUARTER HISTORICAL REPLAY
 

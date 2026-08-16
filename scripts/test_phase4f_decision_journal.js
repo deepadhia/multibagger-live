@@ -33,21 +33,21 @@ async function runPhase4FDecisionJournalAudit() {
   // 1. VERIFY ALL UPSTREAM FROZEN GATES
   // -------------------------------------------------------------------------
   console.log("📌 VERIFYING UPSTREAM FROZEN GATES (4C, 4D, 4B.5.1, 4E.0.1, 4E.1, 4E.2, 4E.3, 4E.4, 4E.5.1)...");
-  execSync('node scripts/test_phase4c_freeze_gate.js', { encoding: 'utf-8' });
+  execSync('node scripts/test_phase4c_freeze_gate.js', { stdio: 'inherit' });
   console.log("  • Phase 4C Read-Only Freeze Gate: PASS 🟢 (8/8 Contracts)");
-  execSync('node scripts/test_phase4d_rerating_engine.js', { encoding: 'utf-8' });
+  execSync('node scripts/test_phase4d_rerating_engine.js', { stdio: 'inherit' });
   console.log("  • Phase 4D Execution Scenario Gate: PASS 🟢 (9/9 Scenario Gates)");
-  execSync('node scripts/test_phase4b5_point_in_time_backtest.js', { encoding: 'utf-8' });
+  execSync('node scripts/test_phase4b5_point_in_time_backtest.js', { stdio: 'inherit' });
   console.log("  • Phase 4B.5.1 Outcome Data Integrity Audit: PASS 🟢 (10/10 Directives)");
-  execSync('node scripts/test_phase4e0_event_dataset.js', { encoding: 'utf-8' });
+  execSync('node scripts/test_phase4e0_event_dataset.js', { stdio: 'inherit' });
   console.log("  • Phase 4E.0.1 Event Market-Reaction Data Audit: PASS 🟢 (11/11 Directives)");
-  execSync('node scripts/test_phase4e1_fundamental_evidence.js', { encoding: 'utf-8' });
+  execSync('node scripts/test_phase4e1_fundamental_evidence.js', { stdio: 'inherit' });
   console.log("  • Phase 4E.1 Fundamental Evidence & Completeness: PASS 🟢 (4/4 Directives)");
-  execSync('node scripts/test_phase4e2_dislocation_vector.js', { encoding: 'utf-8' });
+  execSync('node scripts/test_phase4e2_dislocation_vector.js', { stdio: 'inherit' });
   console.log("  • Phase 4E.2 Point-in-Time Investment State Ledger: PASS 🟢 (6/6 Audit Tests)");
-  execSync('node scripts/test_phase4e3_thesis_classifier.js', { encoding: 'utf-8' });
+  execSync('node scripts/test_phase4e3_thesis_classifier.js', { stdio: 'inherit' });
   console.log("  • Phase 4E.3 Thesis & Conviction Classifier: PASS 🟢 (3/3 Refactored Contracts)");
-  execSync('node scripts/test_phase4e4_thesis_survival.js', { encoding: 'utf-8' });
+  execSync('node scripts/test_phase4e4_thesis_survival.js', { stdio: 'inherit' });
   console.log("  • Phase 4E.4 Multi-Horizon Thesis Trajectory Engine: PASS 🟢 (4/4 Contracts)\n");
 
   // -------------------------------------------------------------------------
@@ -458,17 +458,9 @@ async function runPhase4FDecisionJournalAudit() {
   // -------------------------------------------------------------------------
   // 10. GENERATE COMPREHENSIVE INSTITUTIONAL REPORT ARTIFACT
   // -------------------------------------------------------------------------
-  const brainDir = "C:\\Users\\DeepJAdhia\\.gemini\\antigravity-ide\\brain\\9d9ad3b6-21ed-4c70-912c-ed9fff2fd196";
-  let reportPath;
-  if (process.env.ARTIFACTS_DIR && fs.existsSync(process.env.ARTIFACTS_DIR)) {
-    reportPath = path.join(process.env.ARTIFACTS_DIR, "PHASE_4F_DECISION_JOURNAL_REPORT.md");
-  } else if (fs.existsSync(brainDir)) {
-    reportPath = path.join(brainDir, "PHASE_4F_DECISION_JOURNAL_REPORT.md");
-  } else {
-    const localArtifacts = path.join(process.cwd(), "artifacts");
-    if (!fs.existsSync(localArtifacts)) fs.mkdirSync(localArtifacts, { recursive: true });
-    reportPath = path.join(localArtifacts, "PHASE_4F_DECISION_JOURNAL_REPORT.md");
-  }
+  const artifactsDir = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "artifacts");
+  if (!fs.existsSync(artifactsDir)) fs.mkdirSync(artifactsDir, { recursive: true });
+  const reportPath = path.join(artifactsDir, "PHASE_4F_DECISION_JOURNAL_REPORT.md");
 
   const reportMarkdown = `# 📊 INSTITUTIONAL REPORT: PHASE 4F DECISION JOURNAL & THESIS DISLOCATION LIFECYCLE
 
