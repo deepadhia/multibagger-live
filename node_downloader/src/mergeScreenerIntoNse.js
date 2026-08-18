@@ -649,7 +649,7 @@ async function backfillQuarterForSymbol(symbol, quarter, links, allowedQuartersF
   writeJsonSync(metaPath, meta);
 }
 
-export async function runMerge({ window = "3q", dataDir, symbols } = {}) {
+export async function runMerge({ window = "3q", dataDir, symbols, skipQuarterKeys } = {}) {
   const root = dataDir || DATA_DIR;
 
   if (!fs.existsSync(SCREENER_LINKS_PATH)) {
@@ -766,6 +766,10 @@ export async function runMerge({ window = "3q", dataDir, symbols } = {}) {
   for (const [key, linksForKey] of bySymbolQuarter.entries()) {
     const [symbol, quarter] = key.split("|");
     if (symbolFilterSet && !symbolFilterSet.has(symbol.toUpperCase())) {
+      continue;
+    }
+    if (skipQuarterKeys && (skipQuarterKeys.has(key) || skipQuarterKeys.has(`${symbol.toUpperCase()}|${quarter.toUpperCase()}`))) {
+      console.log(`[Merge Skip] Skipping download for ${symbol} ${quarter} (already verified in DB)`);
       continue;
     }
     const allowedSet = allowedBySymbol.get(symbol);

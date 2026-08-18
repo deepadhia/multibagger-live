@@ -251,15 +251,42 @@ async function runServerNimPipeline() {
     const symbols = targetTicker ? [targetTicker] : fullStocks.rows.map(s => s.ticker);
     const slugMap = new Map();
     for (const s of fullStocks.rows) {
-      if (s.ticker === 'HBLENGINE') slugMap.set('HBLENGINE', 'HBLPOWER');
+      if (s.ticker === 'HBLENGINE') slugMap.set('HBLENGINE', 'HBLENGINEERING');
       else slugMap.set(s.ticker, s.screener_slug || s.ticker);
     }
 
     console.log(`Step 1/2: Scraping latest Screener concalls/PPTs for ${symbols.length} stocks...`);
     await runScreenerScraper(symbols, slugMap);
 
-    console.log("\nStep 2/2: Downloading and merging PDF attachments into data_node...");
-    await runMerge({ window: "3y" });
+    // Query already-processed quarters from database to skip unnecessary downloads
+    const skipQuarterKeys = new Set();
+    if (!forceReprocess) {
+      try {
+        const processedRows = await pool.query(`
+          SELECT ticker, quarter, count(*) as count 
+          FROM management_commitments 
+          GROUP BY ticker, quarter 
+          HAVING count(*) >= 2
+        `);
+        for (const r of processedRows.rows) {
+          skipQuarterKeys.add(`${r.ticker.toUpperCase()}|${r.quarter.toUpperCase()}`);
+          if (r.quarter.includes('FY') && r.quarter.includes('Q')) {
+            const m = r.quarter.match(/q([1-4])\s*fy\s*(\d{2})/i) || r.quarter.match(/fy(\d{2})-q([1-4])/i);
+            if (m) {
+              const fy = m[1].length === 2 ? m[1] : m[2];
+              const q = m[1].length === 1 ? m[1] : m[2];
+              skipQuarterKeys.add(`${r.ticker.toUpperCase()}|FY${fy}-Q${q}`);
+            }
+          }
+        }
+        console.log(`ℹ️ Found ${skipQuarterKeys.size} verified quarter records in DB. Skipping duplicate PDF downloads for these quarters.`);
+      } catch (err) {
+        console.warn(`⚠️ Could not query processed quarters: ${err.message}`);
+      }
+    }
+
+    console.log("\nStep 2/2: Downloading and merging PDF attachments for missing/unprocessed quarters...");
+    await runMerge({ window: "3y", symbols, skipQuarterKeys });
 
     console.log("\n✅ Downloader completed. Proceeding to NIM LLM extraction...\n");
   }
@@ -284,27 +311,12 @@ async function runServerNimPipeline() {
     }
 
     for (const qDir of quarterDirs) {
-      // Check if quarter is already properly processed in the database
-      if (!forceReprocess) {
-        // Build alternative quarter aliases (e.g., 'FY26-Q1', 'Q1 FY26', 'Q1_FY26')
-        const qAliases = [qDir];
-        if (qDir.includes('-')) {
-          const [fy, q] = qDir.split('-');
-          qAliases.push(`${q} ${fy}`);
-          qAliases.push(`${q}_${fy}`);
-        }
-
-        const existingCommitments = await pool.query(
-          `SELECT count(*) as count FROM management_commitments WHERE stock_id = $1 AND (quarter = ANY($2::text[]) OR quarter ILIKE $3)`,
-          [stock.id, qAliases, `%${qDir}%`]
-        );
-
-        const count = parseInt(existingCommitments.rows[0]?.count || '0', 10);
-        if (count >= 2) {
-          console.log(`  ⏭️ [${qDir}] Already processed in DB (${count} commitments exist). Skipping NIM call.`);
-          totalQuartersSkipped++;
-          continue;
-        }
+      // Build alternative quarter aliases (e.g., 'FY26-Q1', 'Q1 FY26', 'Q1_FY26')
+      const qAliases = [qDir];
+      if (qDir.includes('-')) {
+        const [fy, q] = qDir.split('-');
+        qAliases.push(`${q} ${fy}`);
+        qAliases.push(`${q}_${fy}`);
       }
 
       const qPath = path.join(symbolDir, qDir);
@@ -404,6 +416,19 @@ async function runServerNimPipeline() {
         const isResult = pdfFile.toLowerCase().includes('result') || pdfFile.toLowerCase().includes('financial');
 
         const filingType = isConcall ? 'Concall Transcript' : (isPpt ? 'Investor Presentation' : 'Earnings Release');
+
+        // Check if this specific filing type has already been analyzed in DB
+        if (!forceReprocess) {
+          const existingDoc = await pool.query(
+            `SELECT count(*) as count FROM management_commitments WHERE stock_id = $1 AND (quarter = ANY($2::text[]) OR quarter ILIKE $3) AND evidence_summary ILIKE $4`,
+            [stock.id, qAliases, `%${qDir}%`, `%${filingType}%`]
+          );
+          if (parseInt(existingDoc.rows[0]?.count || '0', 10) >= 1) {
+            console.log(`  ⏭️ [${qDir}] ${filingType} already analyzed in DB. Skipping duplicate NIM call.`);
+            totalQuartersSkipped++;
+            continue;
+          }
+        }
 
         console.log(`  📄 Processing [${qDir}] ${filingType}: ${pdfFile}...`);
 
