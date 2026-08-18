@@ -18,7 +18,7 @@ dotenv.config({ path: './.env' });
 
 import fs from 'fs';
 import path from 'path';
-import pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import { pool } from '../backend/db/pool.js';
 import { NVIDIA_API_KEY } from '../backend/config/env.js';
 import { extractDeterministicFinancials } from '../backend/services/financial-validator.service.js';
@@ -104,16 +104,23 @@ async function callNimChat(messages, options = {}) {
 }
 
 /**
- * Extract text from a local PDF file.
+ * Extract text from a local PDF file using PDFParse.
  */
 async function extractTextFromPdf(pdfPath) {
+  if (!pdfPath || !fs.existsSync(pdfPath)) return "";
+  let parser;
   try {
-    const dataBuffer = fs.readFileSync(pdfPath);
-    const pdfData = await pdfParse(dataBuffer);
-    return pdfData.text || "";
+    const buf = fs.readFileSync(pdfPath);
+    parser = new PDFParse({ data: buf });
+    const result = await parser.getText();
+    return result?.text || "";
   } catch (err) {
     console.error(`  ❌ Failed to parse PDF: ${path.basename(pdfPath)} - ${err.message}`);
     return "";
+  } finally {
+    try {
+      if (parser && typeof parser.destroy === "function") parser.destroy();
+    } catch (_) {}
   }
 }
 
