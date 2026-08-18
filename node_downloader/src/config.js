@@ -11,13 +11,25 @@ export const DATA_DIR = path.resolve(__dirname, "..", "..", "data_node");
 // Fallback when run standalone (CLI). When invoked from backend API, symbols come from database.
 export const WATCHLIST = [
   "ANANTRAJ",
-  "INOXINDIA",
-  "HBLENGINE",
-  "LUMAXTECH",
-  "QPOWER",
-  "TIMETECHNO",
-  "GRAVITA",
+  "ASTRAMICRO",
   "CCL",
+  "ELECON",
+  "GRAVITA",
+  "GULPOLY",
+  "HBLENGINE",
+  "INOXINDIA",
+  "JSLL",
+  "JYOTICNC",
+  "LUMAXTECH",
+  "MOREPENLAB",
+  "POLICYBZR",
+  "QPOWER",
+  "SBCL",
+  "SHAKTIPUMP",
+  "SJS",
+  "SKIPPER",
+  "TIMETECHNO",
+  "TRANSRAILL",
 ];
 
 // Default history window (in days) – last 3 quarters

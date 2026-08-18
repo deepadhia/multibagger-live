@@ -59,7 +59,8 @@ const TICKER_NSE_MAP = {
   TIMETECHNO: ['TIMETECHNO.NS', 'TIMETECHNO.BO'],
   QPOWER: ['QPOWER.NS', 'QPOWER.BO'],
   SHAKTIPUMP: ['SHAKTIPUMP.NS', 'SHAKTIPUMP.BO'],
-  SKIPPER: ['SKIPPER.NS', 'SKIPPER.BO']
+  SKIPPER: ['SKIPPER.NS', 'SKIPPER.BO'],
+  MOREPENLAB: ['MOREPENLAB.NS', '500288.BO']
 };
 
 const HISTORICAL_DECISION_CASES = [
@@ -218,6 +219,19 @@ const HISTORICAL_DECISION_CASES = [
     fundamentalDriversAtT0: "Order book >₹6,000 Cr, EBITDA margin expanding >10%, domestic grid capex strong",
     t0EvidenceGrowthRange: [0.18, 0.24],
     fundamentalOutcome: "FUNDAMENTAL_RECOVERY"
+  },
+  {
+    ticker: "MOREPENLAB",
+    companyName: "Morepen Laboratories",
+    quarter: "Q4_FY26",
+    t0Date: "2026-02-23",
+    t0PriceOverride: 46.47,
+    t0SystemSignal: "BUILD_POSITION_STARTER",
+    dislocationStatus: "CDMO_TRANSFORMATION_INITIATED",
+    marketFearAtT0: "Historical bulk API margin volatility and execution uncertainty of new CDMO client mandates",
+    fundamentalDriversAtT0: "Landmark ₹825 Cr CDMO commercial supply mandate secured, operating leverage inflecting",
+    t0EvidenceGrowthRange: [0.20, 0.30],
+    fundamentalOutcome: "EARNINGS_INFLECTION_VALIDATED"
   }
 ];
 
