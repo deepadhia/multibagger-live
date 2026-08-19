@@ -24,6 +24,13 @@ export const pool = new Pool({
   port: parseInt(parsedUrl.port, 10) || 5432,
   database: parsedUrl.pathname.replace("/", ""),
   ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+});
+
+pool.on('error', (err) => {
+  console.warn('[DB POOL NOTICE] Idle client connection reset/dropped:', err.message);
 });
 
 // Run database maintenance to clean up any mismatched/duplicated filing links

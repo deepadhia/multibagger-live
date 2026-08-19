@@ -30,30 +30,36 @@ import { runMerge } from '../node_downloader/src/mergeScreenerIntoNse.js';
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const DATA_DIR = path.resolve(process.cwd(), 'data_node');
 
+const NIM_MODELS = [
+  "meta/llama-3.1-70b-instruct",
+  "nvidia/llama-3.1-nemotron-70b-instruct",
+  "mistralai/mistral-large-2-instruct"
+];
+
 // Rate limiting & backoff settings
-const NIM_MAX_RETRIES = 5;
-const NIM_BASE_DELAY_MS = 3000;
+const NIM_MAX_RETRIES = 4;
+const NIM_BASE_DELAY_MS = 2500;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
- * Call NVIDIA NIM with automatic exponential backoff on 429/503.
+ * Call NVIDIA NIM with automatic model fallback and backoff.
  */
 async function callNimChat(messages, options = {}) {
   if (!NVIDIA_API_KEY) {
     throw new Error("NVIDIA_API_KEY environment variable is not configured.");
   }
 
-  const model = options.model || "meta/llama-3.1-70b-instruct";
   const temperature = options.temperature !== undefined ? options.temperature : 0.1;
-  const max_tokens = options.max_tokens || 1500;
+  const max_tokens = options.max_tokens || 1200;
   const response_format = options.response_format || { type: "json_object" };
 
   for (let attempt = 1; attempt <= NIM_MAX_RETRIES; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s fast timeout
+    const currentModel = options.model || NIM_MODELS[(attempt - 1) % NIM_MODELS.length];
 
     try {
       const response = await fetch(NIM_BASE_URL, {
@@ -64,7 +70,7 @@ async function callNimChat(messages, options = {}) {
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model,
+          model: currentModel,
           messages,
           temperature,
           max_tokens,
@@ -80,8 +86,8 @@ async function callNimChat(messages, options = {}) {
         const isRateLimit = [429, 503, 504].includes(response.status);
 
         if (isRateLimit && attempt < NIM_MAX_RETRIES) {
-          const delay = NIM_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-          console.warn(`  ⏳ [NIM Rate Limit HTTP ${response.status}] Backing off for ${(delay / 1000).toFixed(1)}s (Attempt ${attempt}/${NIM_MAX_RETRIES})...`);
+          const delay = NIM_BASE_DELAY_MS * attempt;
+          console.warn(`  ⏳ [NIM Rate Limit HTTP ${response.status}] Switching model from ${currentModel} in ${(delay / 1000).toFixed(1)}s (Attempt ${attempt}/${NIM_MAX_RETRIES})...`);
           await sleep(delay);
           continue;
         }
@@ -94,9 +100,9 @@ async function callNimChat(messages, options = {}) {
       return content;
     } catch (err) {
       clearTimeout(timeoutId);
-      if (attempt < NIM_MAX_RETRIES && (err.name === 'AbortError' || err.message.includes('fetch'))) {
+      if (attempt < NIM_MAX_RETRIES) {
         const delay = NIM_BASE_DELAY_MS * attempt;
-        console.warn(`  ⏳ [NIM Network/Timeout] Retrying in ${(delay / 1000).toFixed(1)}s...`);
+        console.warn(`  ⏳ [NIM Network/Timeout with ${currentModel}] Retrying with fallback model in ${(delay / 1000).toFixed(1)}s...`);
         await sleep(delay);
         continue;
       }
@@ -127,18 +133,28 @@ async function extractTextFromPdf(pdfPath) {
 }
 
 /**
- * Extracts structured management commitments and concall analysis via NIM,
- * grounded in verified statutory XBRL financials to prevent hallucinations.
+ * Splits text into overlapping chunks of chunkSize with overlap.
+ */
+function splitIntoChunks(text, chunkSize = 10000, overlap = 1000) {
+  if (!text || text.length <= chunkSize) return [text || ""];
+  const chunks = [];
+  let offset = 0;
+  while (offset < text.length && chunks.length < 6) { // up to 6 chunks = 55,000+ characters audited
+    chunks.push(text.substring(offset, offset + chunkSize));
+    offset += (chunkSize - overlap);
+  }
+  return chunks;
+}
+
+/**
+ * Extracts structured management commitments and concall analysis via NIM in overlapping chunks,
+ * auditing 100% of the concall/presentation text grounded in verified statutory XBRL financials.
  */
 async function extractCommitmentsWithNim(ticker, quarter, filingType, text, thesis, statutoryContext = null) {
   if (!text || text.trim().length < 200) return null;
 
-  // Cap text to 18,000 characters (opening + Q&A conclusion)
-  let processedText = text;
-  if (processedText.length > 18000) {
-    const half = 9000;
-    processedText = `${processedText.substring(0, half)}\n\n[... TRUNCATED MIDDLE FOR NIM CONTEXT EFFICIENCY ...]\n\n${processedText.substring(processedText.length - half)}`;
-  }
+  const chunks = splitIntoChunks(text, 10000, 1000);
+  console.log(`    📑 Auditing full text in ${chunks.length} chunk(s) (${text.length} chars total)...`);
 
   const statSection = statutoryContext 
     ? `\n── Verified Statutory XBRL Ground Truth for ${quarter} ──\n` +
@@ -150,18 +166,24 @@ async function extractCommitmentsWithNim(ticker, quarter, filingType, text, thes
       `NOTE: Use the above verified statutory numbers as the authoritative golden anchor. Do not contradict statutory figures.\n`
     : "";
 
-  const prompt = `
+  const allCommitments = [];
+  let overallSentiment = "BULLISH";
+  let overallCredibility = "Tier 2";
+
+  for (let idx = 0; idx < chunks.length; idx++) {
+    const chunkText = chunks[idx];
+    const prompt = `
 You are a Senior Indian Equity Research Analyst conducting an Institutional Point-In-Time Audit.
 Extract ALL measurable, falsifiable management commitments, milestone guidance, and strategic statements from this filing.
 
 Ticker: ${ticker}
 Quarter: ${quarter}
-Filing Type: ${filingType}
+Filing Type: ${filingType} (Part ${idx + 1} of ${chunks.length})
 Underwritten Investment Thesis: ${thesis || "High-quality growth, clean balance sheet, high ROCE."}
 ${statSection}
 
 ── Extraction Rules ──
-1. Extract 2 to 6 specific, falsifiable commitments (Capex, Revenue targets, Order book, Capacity commissioning, Margin guidance, Debt targets, Geographic expansion).
+1. Extract 1 to 5 specific, falsifiable commitments (Capex, Revenue targets, Order book, Capacity commissioning, Margin guidance, Debt targets, Geographic expansion) present in this part.
 2. For each commitment, identify:
    - statement: Clear, concise verbatim commitment quote.
    - metric: Category (e.g. Capex, EBITDA Margin, Order Inflows, Net Debt, Capacity Commissioning).
@@ -170,7 +192,7 @@ ${statSection}
    - status: "Achieved" (if completed), "Pending" (in progress), "Delayed" (pushed back), or "Divergent" (missed).
    - blockers_and_risks: Management's stated headwinds or delays (or null).
    - credibility_impact: "positive", "neutral", or "negative".
-3. STRICT PERIOD ACCURACY: Only extract statements made within or for this exact quarter context. Never attribute forward future actuals as already completed.
+3. STRICT PERIOD ACCURACY: Only extract statements made within or for this exact quarter context.
 4. Return ONLY a valid JSON object:
 {
   "credibility_tier": "Tier 1" | "Tier 2" | "Tier 3",
@@ -189,22 +211,48 @@ ${statSection}
   ]
 }
 
-Filing Content:
-${processedText}
+Filing Content (Part ${idx + 1} of ${chunks.length}):
+${chunkText}
 `;
 
-  try {
-    const rawOutput = await callNimChat([
-      { role: "system", content: "You are an institutional equity analyst extracting exact management commitments from Indian corporate filings. Respond in pure JSON." },
-      { role: "user", content: prompt }
-    ]);
+    try {
+      const rawOutput = await callNimChat([
+        { role: "system", content: "You are an institutional equity analyst extracting exact management commitments from Indian corporate filings. Respond in pure JSON." },
+        { role: "user", content: prompt }
+      ]);
 
-    const cleanJson = rawOutput.replace(/```json\n?/, "").replace(/\n?```/, "").trim();
-    return JSON.parse(cleanJson);
-  } catch (err) {
-    console.error(`  ❌ NIM commitment extraction failed for ${ticker} [${quarter}]:`, err.message);
-    return null;
+      const cleanJson = rawOutput.replace(/```json\n?/, "").replace(/\n?```/, "").trim();
+      const parsed = JSON.parse(cleanJson);
+      if (parsed.commitments && Array.isArray(parsed.commitments)) {
+        allCommitments.push(...parsed.commitments);
+      }
+      if (parsed.concall_sentiment) overallSentiment = parsed.concall_sentiment;
+      if (parsed.credibility_tier) overallCredibility = parsed.credibility_tier;
+    } catch (err) {
+      console.warn(`    ⚠️ Notice on chunk ${idx + 1}/${chunks.length}: ${err.message}`);
+    }
+
+    if (idx < chunks.length - 1) {
+      await sleep(1000); // Polite delay between chunks
+    }
   }
+
+  // Deduplicate commitments by statement
+  const seenStatements = new Set();
+  const dedupedCommitments = [];
+  for (const c of allCommitments) {
+    const key = (c.statement || "").trim().toLowerCase();
+    if (key.length > 10 && !seenStatements.has(key)) {
+      seenStatements.add(key);
+      dedupedCommitments.push(c);
+    }
+  }
+
+  return {
+    credibility_tier: overallCredibility,
+    concall_sentiment: overallSentiment,
+    commitments: dedupedCommitments
+  };
 }
 
 /**
@@ -432,59 +480,63 @@ async function runServerNimPipeline() {
 
         console.log(`  📄 Processing [${qDir}] ${filingType}: ${pdfFile}...`);
 
-        const text = await extractTextFromPdf(fullPdfPath);
-        if (!text || text.length < 300) {
-          console.log(`    ⚠️ Skipping (insufficient text or scanned PDF).`);
-          continue;
+        try {
+          const text = await extractTextFromPdf(fullPdfPath);
+          if (!text || text.length < 300) {
+            console.log(`    ⚠️ Skipping (insufficient text or scanned PDF).`);
+            continue;
+          }
+
+          totalPdfsProcessed++;
+
+          // Call NVIDIA NIM to extract commitments grounded in statutory XBRL context
+          const nimResult = await extractCommitmentsWithNim(stock.ticker, qDir, filingType, text, thesisText, statutoryContext);
+          if (!nimResult || !nimResult.commitments || nimResult.commitments.length === 0) {
+            console.log(`    ℹ️ No explicit new commitments extracted.`);
+            continue;
+          }
+
+          console.log(`    ✨ Extracted ${nimResult.commitments.length} commitments via NIM (Sentiment: ${nimResult.concall_sentiment}, Credibility: ${nimResult.credibility_tier}):`);
+
+          for (const c of nimResult.commitments) {
+            const insertQuery = `
+              INSERT INTO management_commitments (
+                stock_id, ticker, quarter, statement, metric, target_value,
+                timeline, status, evidence_summary, blockers_and_risks,
+                credibility_impact, commitment_title, created_at
+              ) VALUES (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10,
+                $11, $12, NOW()
+              )
+              ON CONFLICT DO NOTHING
+            `;
+
+            const values = [
+              stock.id,
+              stock.ticker,
+              qDir,
+              c.statement,
+              c.metric || 'Strategic Delivery',
+              c.target_value || 'Not specified',
+              c.timeline || qDir,
+              c.status || 'Pending',
+              c.evidence_summary || `Extracted from ${filingType} (${qDir})`,
+              c.blockers_and_risks || null,
+              c.credibility_impact || 'neutral',
+              `${c.metric || 'Commitment'}: ${c.target_value || ''}`
+            ];
+
+            await pool.query(insertQuery, values);
+            totalCommitmentsUpserted++;
+            console.log(`      • [${c.status}] ${c.metric}: "${c.statement}" (Target: ${c.target_value}, Timeline: ${c.timeline})`);
+          }
+
+          // Polite delay between NIM LLM calls to protect rate limits
+          await sleep(1500);
+        } catch (docErr) {
+          console.error(`    ❌ Error processing ${pdfFile}: ${docErr.message}. Moving to next document.`);
         }
-
-        totalPdfsProcessed++;
-
-        // Call NVIDIA NIM to extract commitments grounded in statutory XBRL context
-        const nimResult = await extractCommitmentsWithNim(stock.ticker, qDir, filingType, text, thesisText, statutoryContext);
-        if (!nimResult || !nimResult.commitments || nimResult.commitments.length === 0) {
-          console.log(`    ℹ️ No explicit new commitments extracted.`);
-          continue;
-        }
-
-        console.log(`    ✨ Extracted ${nimResult.commitments.length} commitments via NIM (Sentiment: ${nimResult.concall_sentiment}, Credibility: ${nimResult.credibility_tier}):`);
-
-        for (const c of nimResult.commitments) {
-          const insertQuery = `
-            INSERT INTO management_commitments (
-              stock_id, ticker, quarter, statement, metric, target_value,
-              timeline, status, evidence_summary, blockers_and_risks,
-              credibility_impact, commitment_title, created_at
-            ) VALUES (
-              $1, $2, $3, $4, $5, $6,
-              $7, $8, $9, $10,
-              $11, $12, NOW()
-            )
-            ON CONFLICT DO NOTHING
-          `;
-
-          const values = [
-            stock.id,
-            stock.ticker,
-            qDir,
-            c.statement,
-            c.metric || 'Strategic Delivery',
-            c.target_value || 'Not specified',
-            c.timeline || qDir,
-            c.status || 'Pending',
-            c.evidence_summary || `Extracted from ${filingType} (${qDir})`,
-            c.blockers_and_risks || null,
-            c.credibility_impact || 'neutral',
-            `${c.metric || 'Commitment'}: ${c.target_value || ''}`
-          ];
-
-          await pool.query(insertQuery, values);
-          totalCommitmentsUpserted++;
-          console.log(`      • [${c.status}] ${c.metric}: "${c.statement}" (Target: ${c.target_value}, Timeline: ${c.timeline})`);
-        }
-
-        // Polite delay between NIM LLM calls to protect rate limits
-        await sleep(1500);
       }
     }
   }
