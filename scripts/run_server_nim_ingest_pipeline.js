@@ -78,19 +78,25 @@ function repairTruncatedJson(str) {
 /**
  * Call NVIDIA NIM with verified meta/llama-3.1-70b-instruct and exponential backoff.
  */
+const NIM_FALLBACK_CASCADE = [
+  "meta/llama-3.1-8b-instruct",
+  "meta/llama-3.2-3b-instruct",
+  "mistralai/mistral-7b-instruct-v0.3"
+];
+
 async function callNimChat(messages, options = {}) {
   if (!NVIDIA_API_KEY) {
     throw new Error("NVIDIA_API_KEY environment variable is not configured.");
   }
 
-  const model = options.model || NIM_MODEL;
   const temperature = options.temperature !== undefined ? options.temperature : 0.1;
   const max_tokens = options.max_tokens || 2048;
   const response_format = options.response_format || { type: "json_object" };
 
   for (let attempt = 1; attempt <= NIM_MAX_RETRIES; attempt++) {
+    const currentModel = options.model || NIM_FALLBACK_CASCADE[(attempt - 1) % NIM_FALLBACK_CASCADE.length];
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout for dense concall chunks
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
 
     try {
       const response = await fetch(NIM_BASE_URL, {
@@ -101,7 +107,7 @@ async function callNimChat(messages, options = {}) {
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model,
+          model: currentModel,
           messages,
           temperature,
           max_tokens,
@@ -118,12 +124,12 @@ async function callNimChat(messages, options = {}) {
 
         if (isRateLimit && attempt < NIM_MAX_RETRIES) {
           const delay = NIM_BASE_DELAY_MS * attempt;
-          console.warn(`  ⏳ [NIM Rate Limit HTTP ${response.status}] Backing off for ${(delay / 1000).toFixed(1)}s (Attempt ${attempt}/${NIM_MAX_RETRIES})...`);
+          console.warn(`  ⏳ [NIM Rate Limit HTTP ${response.status} on ${currentModel}] Backing off for ${(delay / 1000).toFixed(1)}s (Attempt ${attempt}/${NIM_MAX_RETRIES})...`);
           await sleep(delay);
           continue;
         }
 
-        throw new Error(`NIM API failed with HTTP ${response.status}: ${JSON.stringify(errBody)}`);
+        throw new Error(`NIM API failed on ${currentModel} with HTTP ${response.status}: ${JSON.stringify(errBody)}`);
       }
 
       const data = await response.json();
@@ -133,7 +139,7 @@ async function callNimChat(messages, options = {}) {
       clearTimeout(timeoutId);
       if (attempt < NIM_MAX_RETRIES) {
         const delay = NIM_BASE_DELAY_MS * attempt;
-        console.warn(`  ⏳ [NIM Network/Timeout] Retrying in ${(delay / 1000).toFixed(1)}s (Attempt ${attempt}/${NIM_MAX_RETRIES})...`);
+        console.warn(`  ⏳ [NIM Network/Timeout with ${currentModel}] Retrying with fallback model in ${(delay / 1000).toFixed(1)}s (Attempt ${attempt}/${NIM_MAX_RETRIES})...`);
         await sleep(delay);
         continue;
       }
