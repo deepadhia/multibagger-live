@@ -44,6 +44,37 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function repairTruncatedJson(str) {
+  if (!str) return null;
+  let s = str.trim();
+  s = s.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+  
+  try {
+    return JSON.parse(s);
+  } catch (e) {
+    let repaired = s;
+    const quoteCount = (repaired.match(/(?<!\\)"/g) || []).length;
+    if (quoteCount % 2 !== 0) repaired += '"';
+    
+    repaired = repaired.replace(/,\s*\{[^{}]*$/, '');
+    repaired = repaired.replace(/,\s*"[^"]*":?\s*$/, '');
+    
+    const openBraces = (repaired.match(/{/g) || []).length;
+    const closeBraces = (repaired.match(/}/g) || []).length;
+    const openBrackets = (repaired.match(/\[/g) || []).length;
+    const closeBrackets = (repaired.match(/\]/g) || []).length;
+    
+    for (let i = 0; i < (openBrackets - closeBrackets); i++) repaired += ']';
+    for (let i = 0; i < (openBraces - closeBraces); i++) repaired += '}';
+    
+    try {
+      return JSON.parse(repaired);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 /**
  * Call NVIDIA NIM with verified meta/llama-3.1-70b-instruct and exponential backoff.
  */
@@ -54,7 +85,7 @@ async function callNimChat(messages, options = {}) {
 
   const model = options.model || NIM_MODEL;
   const temperature = options.temperature !== undefined ? options.temperature : 0.1;
-  const max_tokens = options.max_tokens || 800;
+  const max_tokens = options.max_tokens || 2048;
   const response_format = options.response_format || { type: "json_object" };
 
   for (let attempt = 1; attempt <= NIM_MAX_RETRIES; attempt++) {
@@ -223,13 +254,12 @@ ${chunkText}
         { role: "user", content: prompt }
       ]);
 
-      const cleanJson = rawOutput.replace(/```json\n?/, "").replace(/\n?```/, "").trim();
-      const parsed = JSON.parse(cleanJson);
-      if (parsed.commitments && Array.isArray(parsed.commitments)) {
+      const parsed = repairTruncatedJson(rawOutput);
+      if (parsed && parsed.commitments && Array.isArray(parsed.commitments)) {
         allCommitments.push(...parsed.commitments);
       }
-      if (parsed.concall_sentiment) overallSentiment = parsed.concall_sentiment;
-      if (parsed.credibility_tier) overallCredibility = parsed.credibility_tier;
+      if (parsed && parsed.concall_sentiment) overallSentiment = parsed.concall_sentiment;
+      if (parsed && parsed.credibility_tier) overallCredibility = parsed.credibility_tier;
     } catch (err) {
       console.warn(`    ⚠️ Notice on chunk ${idx + 1}/${chunks.length}: ${err.message}`);
     }
