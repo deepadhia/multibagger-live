@@ -53,12 +53,12 @@ async function callNimChat(messages, options = {}) {
   }
 
   const temperature = options.temperature !== undefined ? options.temperature : 0.1;
-  const max_tokens = options.max_tokens || 1200;
+  const max_tokens = options.max_tokens || 800;
   const response_format = options.response_format || { type: "json_object" };
 
   for (let attempt = 1; attempt <= NIM_MAX_RETRIES; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s fast timeout
+    const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout (NIM standard)
     const currentModel = options.model || NIM_MODELS[(attempt - 1) % NIM_MODELS.length];
 
     try {
@@ -350,8 +350,19 @@ async function runServerNimPipeline() {
       continue;
     }
 
-    const quarterDirs = fs.readdirSync(symbolDir).filter(d => d.startsWith('FY')).sort();
-    console.log(`\n🏢 ${stock.ticker} (${stock.company_name}) — Found ${quarterDirs.length} quarter folders.`);
+    // Sort quarters strictly from OLDEST to LATEST (e.g. FY24-Q1 -> FY24-Q2 -> ... -> FY27-Q1)
+    const quarterDirs = fs.readdirSync(symbolDir)
+      .filter(d => d.startsWith('FY'))
+      .sort((a, b) => {
+        const parseQ = (s) => {
+          const m = s.match(/FY(\d{2})-Q([1-4])/i);
+          if (!m) return 0;
+          return parseInt(m[1], 10) * 10 + parseInt(m[2], 10);
+        };
+        return parseQ(a) - parseQ(b);
+      });
+
+    console.log(`\n🏢 ${stock.ticker} (${stock.company_name}) — Found ${quarterDirs.length} quarter folders (Chronological: ${quarterDirs[0] || 'N/A'} ➔ ${quarterDirs[quarterDirs.length - 1] || 'N/A'}).`);
 
     let thesisText = stock.investment_thesis;
     if (typeof thesisText === 'string' && thesisText.startsWith('{')) {
@@ -454,7 +465,18 @@ async function runServerNimPipeline() {
         }
       } catch (_) {}
 
-      const pdfFiles = files.filter(f => f.toLowerCase().endsWith('.pdf'));
+      // Chronological document ordering: Results -> Investor Presentations -> Concall Transcripts
+      const pdfFiles = files.filter(f => f.toLowerCase().endsWith('.pdf')).sort((a, b) => {
+        const score = (f) => {
+          const low = f.toLowerCase();
+          if (low.includes('result') || low.includes('financial')) return 1;
+          if (low.includes('presentation') || low.includes('ppt')) return 2;
+          if (low.includes('concall') || low.includes('transcript')) return 3;
+          return 4;
+        };
+        return score(a) - score(b);
+      });
+
       if (pdfFiles.length === 0) continue;
 
       for (const pdfFile of pdfFiles) {
