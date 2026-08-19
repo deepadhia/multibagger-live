@@ -58,7 +58,7 @@ async function callNimChat(messages, options = {}) {
 
   for (let attempt = 1; attempt <= NIM_MAX_RETRIES; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout (NIM standard)
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout for dense concall chunks
     const currentModel = options.model || NIM_MODELS[(attempt - 1) % NIM_MODELS.length];
 
     try {
