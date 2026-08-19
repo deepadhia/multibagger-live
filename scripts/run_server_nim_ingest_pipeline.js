@@ -182,17 +182,19 @@ Filing Type: ${filingType} (Part ${idx + 1} of ${chunks.length})
 Underwritten Investment Thesis: ${thesis || "High-quality growth, clean balance sheet, high ROCE."}
 ${statSection}
 
-── Extraction Rules ──
-1. Extract 1 to 5 specific, falsifiable commitments (Capex, Revenue targets, Order book, Capacity commissioning, Margin guidance, Debt targets, Geographic expansion) present in this part.
-2. For each commitment, identify:
-   - statement: Clear, concise verbatim commitment quote.
-   - metric: Category (e.g. Capex, EBITDA Margin, Order Inflows, Net Debt, Capacity Commissioning).
-   - target_value: Specific numeric or qualitative target (e.g. "₹520 Cr over 18m", ">12%", "Net-debt zero").
-   - timeline: Exact deadline stated by management (e.g. "Q4 FY26", "H2 FY27", "FY27").
-   - status: "Achieved" (if completed), "Pending" (in progress), "Delayed" (pushed back), or "Divergent" (missed).
-   - blockers_and_risks: Management's stated headwinds or delays (or null).
-   - credibility_impact: "positive", "neutral", or "negative".
-3. STRICT PERIOD ACCURACY: Only extract statements made within or for this exact quarter context.
+── STRICT INSTITUTIONAL EXTRACTION & NOISE EXCLUSION RULES ──
+1. Extract ONLY measurable, falsifiable management guidance and explicit corporate commitments (e.g., Capex ₹ Cr, Capacity MW/MTPA/sq ft, Order Book ₹ Cr, Revenue targets ₹ Cr / %, Margin % targets, Net Debt Zero / Borrowing targets).
+2. ZERO FLUFF / ZERO NOISE RULE:
+   - NEVER extract generic slide titles or themes (e.g., "Our Growth Drivers", "EMS", "Vision", "Market Size", "Demand", "Overview", "Growth Phase").
+   - NEVER extract conversational pleasantries or closing remarks (e.g., "Look forward to meeting in Q1", "Safety and Quality", "Cost management is on track").
+   - NEVER extract third-party industry reports or macro TAM data (e.g., "Indian radar market is $1.4B").
+   - If this chunk has NO explicit numerical targets or verifiable company commitments, return "commitments": [] (empty array). DO NOT force extraction.
+3. For each valid commitment:
+   - statement: Verbatim quote from management stating the exact promise or milestone.
+   - metric: Standard category (Capex, Capacity Commissioning, Order Book, Revenue Target, EBITDA Margin, Debt Reduction).
+   - target_value: Specific numerical metric or clear milestone (e.g., "₹500 Cr", "307 MW", "Net Debt Zero", "1.1 msf"). MUST NOT be null, generic, or "Not specified".
+   - timeline: Specific quarter or fiscal year deadline (e.g., "Q4 FY26", "FY28").
+   - status: "Achieved" (if verified completed in filing), "Pending" (in progress within deadline), "Partially Achieved", or "Missed" (if deadline passed or target failed).
 4. Return ONLY a valid JSON object:
 {
   "credibility_tier": "Tier 1" | "Tier 2" | "Tier 3",
@@ -521,6 +523,22 @@ async function runServerNimPipeline() {
           console.log(`    ✨ Extracted ${nimResult.commitments.length} commitments via NIM (Sentiment: ${nimResult.concall_sentiment}, Credibility: ${nimResult.credibility_tier}):`);
 
           for (const c of nimResult.commitments) {
+            // Strict Quality Gate: Discard low-value fluff, slide headers, or unmeasured statements
+            const stmt = (c.statement || '').trim();
+            const target = (c.target_value || '').trim().toLowerCase();
+            const metric = (c.metric || '').trim().toLowerCase();
+
+            const isNoise = 
+              stmt.length < 25 ||
+              !target ||
+              ['null', 'n/a', 'not specified', 'none', 'unknown', ''].includes(target) ||
+              ['our growth drivers', 'growth drivers', 'vision', 'overview', 'market size', 'disclaimer', 'ems', 'demand'].includes(stmt.toLowerCase()) ||
+              ['our growth drivers', 'vision', 'none', 'overview', 'demand'].includes(metric);
+
+            if (isNoise) {
+              continue; // Skip low-value noise items
+            }
+
             const insertQuery = `
               INSERT INTO management_commitments (
                 stock_id, ticker, quarter, statement, metric, target_value,

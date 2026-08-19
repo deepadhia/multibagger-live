@@ -252,7 +252,14 @@ export async function sendRunSummary({
   const durationSec = (durationMs / 1000).toFixed(1);
   const timestamp   = getIstTimestamp();
 
-  // Fetch commitments fulfilled (Achieved) or broken (Missed) in the last 24 hours
+  // Don't send a summary if it's a routine quiet run (no new announcements or alerts)
+  const isQuiet = newAnnouncements === 0 && alertsSent === 0 && bseErrors === 0 && nseErrors === 0;
+  if (isQuiet) {
+    console.log(`[SUMMARY] Quiet run — no new live filings or alerts. Skipping Telegram summary.`);
+    return;
+  }
+
+  // Fetch commitments fulfilled (Achieved) or broken (Missed) in the last 24 hours only if there are live events
   let fulfilledPromises = [];
   let brokenPromises = [];
   try {
@@ -290,13 +297,6 @@ export async function sendRunSummary({
     const t = m.ticker.toUpperCase();
     if (!stockMap[t]) stockMap[t] = { fulfilled: [], missed: [] };
     stockMap[t].missed.push(m);
-  }
-
-  // Don't send a summary if nothing interesting happened and no errors
-  const isQuiet = newAnnouncements === 0 && bseErrors === 0 && nseErrors === 0 && Object.keys(stockMap).length === 0;
-  if (isQuiet) {
-    console.log(`[SUMMARY] Quiet run — no new announcements or commitment updates. Skipping Telegram summary.`);
-    return;
   }
 
   let status;
