@@ -203,7 +203,7 @@ ${statSection}
       "metric": "...",
       "target_value": "...",
       "timeline": "...",
-      "status": "Achieved" | "Pending" | "Delayed" | "Divergent",
+      "status": "Achieved" | "Pending" | "Partially Achieved" | "Missed",
       "evidence_summary": "...",
       "blockers_and_risks": "..." or null,
       "credibility_impact": "positive" | "neutral" | "negative"
@@ -534,6 +534,17 @@ async function runServerNimPipeline() {
               ON CONFLICT DO NOTHING
             `;
 
+            const normStatus = (s) => {
+              if (!s) return 'Pending';
+              const str = String(s).trim().toLowerCase();
+              if (str.includes('achiev') && !str.includes('part')) return 'Achieved';
+              if (str.includes('part')) return 'Partially Achieved';
+              if (str.includes('miss') || str.includes('diverg') || str.includes('fail') || str.includes('broken')) return 'Missed';
+              return 'Pending';
+            };
+
+            const finalStatus = normStatus(c.status);
+
             const values = [
               stock.id,
               stock.ticker,
@@ -542,7 +553,7 @@ async function runServerNimPipeline() {
               c.metric || 'Strategic Delivery',
               c.target_value || 'Not specified',
               c.timeline || qDir,
-              c.status || 'Pending',
+              finalStatus,
               c.evidence_summary || `Extracted from ${filingType} (${qDir})`,
               c.blockers_and_risks || null,
               c.credibility_impact || 'neutral',
@@ -551,7 +562,7 @@ async function runServerNimPipeline() {
 
             await pool.query(insertQuery, values);
             totalCommitmentsUpserted++;
-            console.log(`      • [${c.status}] ${c.metric}: "${c.statement}" (Target: ${c.target_value}, Timeline: ${c.timeline})`);
+            console.log(`      • [${finalStatus}] ${c.metric}: "${c.statement}" (Target: ${c.target_value}, Timeline: ${c.timeline})`);
           }
 
           // Polite delay between NIM LLM calls to protect rate limits
