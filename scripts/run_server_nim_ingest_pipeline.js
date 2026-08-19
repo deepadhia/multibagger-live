@@ -30,28 +30,25 @@ import { runMerge } from '../node_downloader/src/mergeScreenerIntoNse.js';
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const DATA_DIR = path.resolve(process.cwd(), 'data_node');
 
-const NIM_MODELS = [
-  "meta/llama-3.1-70b-instruct",
-  "nvidia/llama-3.1-nemotron-70b-instruct",
-  "mistralai/mistral-large-2-instruct"
-];
+const NIM_MODEL = "meta/llama-3.1-70b-instruct";
 
 // Rate limiting & backoff settings
-const NIM_MAX_RETRIES = 4;
-const NIM_BASE_DELAY_MS = 2500;
+const NIM_MAX_RETRIES = 3;
+const NIM_BASE_DELAY_MS = 3000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
- * Call NVIDIA NIM with automatic model fallback and backoff.
+ * Call NVIDIA NIM with verified meta/llama-3.1-70b-instruct and exponential backoff.
  */
 async function callNimChat(messages, options = {}) {
   if (!NVIDIA_API_KEY) {
     throw new Error("NVIDIA_API_KEY environment variable is not configured.");
   }
 
+  const model = options.model || NIM_MODEL;
   const temperature = options.temperature !== undefined ? options.temperature : 0.1;
   const max_tokens = options.max_tokens || 800;
   const response_format = options.response_format || { type: "json_object" };
@@ -59,7 +56,6 @@ async function callNimChat(messages, options = {}) {
   for (let attempt = 1; attempt <= NIM_MAX_RETRIES; attempt++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s timeout for dense concall chunks
-    const currentModel = options.model || NIM_MODELS[(attempt - 1) % NIM_MODELS.length];
 
     try {
       const response = await fetch(NIM_BASE_URL, {
@@ -70,7 +66,7 @@ async function callNimChat(messages, options = {}) {
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model: currentModel,
+          model,
           messages,
           temperature,
           max_tokens,
@@ -87,7 +83,7 @@ async function callNimChat(messages, options = {}) {
 
         if (isRateLimit && attempt < NIM_MAX_RETRIES) {
           const delay = NIM_BASE_DELAY_MS * attempt;
-          console.warn(`  ⏳ [NIM Rate Limit HTTP ${response.status}] Switching model from ${currentModel} in ${(delay / 1000).toFixed(1)}s (Attempt ${attempt}/${NIM_MAX_RETRIES})...`);
+          console.warn(`  ⏳ [NIM Rate Limit HTTP ${response.status}] Backing off for ${(delay / 1000).toFixed(1)}s (Attempt ${attempt}/${NIM_MAX_RETRIES})...`);
           await sleep(delay);
           continue;
         }
@@ -102,7 +98,7 @@ async function callNimChat(messages, options = {}) {
       clearTimeout(timeoutId);
       if (attempt < NIM_MAX_RETRIES) {
         const delay = NIM_BASE_DELAY_MS * attempt;
-        console.warn(`  ⏳ [NIM Network/Timeout with ${currentModel}] Retrying with fallback model in ${(delay / 1000).toFixed(1)}s...`);
+        console.warn(`  ⏳ [NIM Network/Timeout] Retrying in ${(delay / 1000).toFixed(1)}s (Attempt ${attempt}/${NIM_MAX_RETRIES})...`);
         await sleep(delay);
         continue;
       }
