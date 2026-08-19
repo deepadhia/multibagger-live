@@ -12,6 +12,9 @@
  * 5. Robust retry exponential backoff for NIM API rate limits (HTTP 429/503).
  */
 
+import dns from 'dns';
+try { dns.setDefaultResultOrder('ipv4first'); } catch (_) {}
+
 import dotenv from 'dotenv';
 dotenv.config({ path: './.env.local' });
 dotenv.config({ path: './.env' });
@@ -30,11 +33,12 @@ import { runMerge } from '../node_downloader/src/mergeScreenerIntoNse.js';
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const DATA_DIR = path.resolve(process.cwd(), 'data_node');
 
-const NIM_MODEL = "meta/llama-3.1-70b-instruct";
+// Ultra-fast, highly reliable NIM model for point-in-time extraction without cloud gateway timeouts
+const NIM_MODEL = "meta/llama-3.1-8b-instruct";
 
 // Rate limiting & backoff settings
 const NIM_MAX_RETRIES = 3;
-const NIM_BASE_DELAY_MS = 3000;
+const NIM_BASE_DELAY_MS = 2000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
