@@ -60,7 +60,7 @@ export async function ensureReplayEvaluationsTable(client = pool) {
 /**
  * Evaluates the FROZEN_V1 ruleset for a single evidence snapshot.
  */
-function evaluateFrozenV1Rules(snapshot, prevState, isInitialT0) {
+export function evaluateFrozenV1Rules(snapshot, prevState, isInitialT0) {
   const m = snapshot.current_metrics || {};
   const d = snapshot.derived_features || {};
 

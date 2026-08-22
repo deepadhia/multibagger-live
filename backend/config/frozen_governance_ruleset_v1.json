@@ -1,0 +1,58 @@
+{
+  "governance_version": "FROZEN_GOVERNANCE_V1.0",
+  "sealed_at": "2026-08-22T13:51:00Z",
+  "operational_identity": {
+    "role": "AUTONOMOUS_RESEARCH_INTEGRITY_ENGINE",
+    "status": "HUMAN_REVIEW_REQUIRED",
+    "unattended_autonomous_buying": false
+  },
+  "guidance_scoring_rules": {
+    "quantified_target_base_weight": 3.0,
+    "general_aspiration_base_weight": 1.0,
+    "kept_achievement_multiplier": 1.0,
+    "partial_achievement_multiplier": 0.5,
+    "missed_penalty_multiplier": 2.0,
+    "overdue_penalty_multiplier": 1.5,
+    "default_untracked_score": 50
+  },
+  "point_in_time_rules": {
+    "max_price_age_days": 5,
+    "max_stale_quarter_days": 150,
+    "strict_precedence": "filing_date <= decision_timestamp",
+    "filing_precedes_quarter_end_strictly_forbidden": true
+  },
+  "financial_sanity_rules": {
+    "max_normal_crores_threshold": 50000,
+    "raw_rupees_scale_divisor": 10000000,
+    "min_ebitda_margin_pct": 0.0,
+    "max_ebitda_margin_pct": 100.0,
+    "min_roce_pct": 0.0,
+    "max_roce_pct": 100.0,
+    "allow_negative_debt": false,
+    "allow_pat_exceeds_revenue_without_disclosure": false
+  },
+  "market_regime_thresholds": {
+    "severe_drawdown_pct": -50.0,
+    "deep_drawdown_pct": -25.0,
+    "margin_collapse_gate_threshold_pct": 8.0,
+    "margin_decay_consecutive_quarters_to_gate": 2
+  },
+  "narrative_inflation_rules": {
+    "prohibited_unsubstantiated_terms": ["monopoly", "global monopoly", "undisputed monopoly"],
+    "required_quantified_market_share_regex": ">\\s*\\d+%\\s*share"
+  },
+  "no_add_security_boundary": {
+    "strictly_blocks_add_on": [
+      "DATA_STALE",
+      "CORRUPTED_UNITS",
+      "METRIC_INCOHERENCE",
+      "LOOK_AHEAD_VIOLATION",
+      "MARGIN_COMPRESSION_BELOW_8_PCT",
+      "SEVERE_DRAWDOWN_BELOW_50_PCT",
+      "NEGATIVE_DEBT",
+      "MARGIN_OUT_OF_BOUNDS",
+      "UNSUBSTANTIATED_MONOPOLY_NARRATIVE"
+    ],
+    "cheap_valuation_can_override_integrity": false
+  }
+}
