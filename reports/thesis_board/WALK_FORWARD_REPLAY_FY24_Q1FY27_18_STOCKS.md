@@ -3,7 +3,7 @@
 **Replay Universe:** 100% Portfolio Coverage (18/18 Stocks)  
 **Historical Period:** FY24-Q4 through Q1 FY27 (10 Historical Quarters)  
 **Strict Invariant:** **Zero-Future-Information Leakage** (Every quarterly state $T$ is computed strictly from evidence timestamped on or before the cutoff date of quarter $T$).  
-**Generated At:** Sat, 22 Aug 2026 19:20:52 GMT  
+**Generated At:** Sat, 22 Aug 2026 19:28:38 GMT  
 **System Invariant:** Layer 1 Rankings Frozen (18/18 invariant, 0 mutations).
 
 ---
