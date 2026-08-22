@@ -17,6 +17,7 @@
     "supabase:functions:serve": "supabase functions serve",
     "server": "node backend/server.js",
     "server:dev": "node --env-file=.env.local backend/server.js",
+    "reconcile:nightly": "node backend/scripts/run-nightly-reconciliation.js",
     "db:migrate": "node backend/migrate.js",
     "db:seed": "node backend/seed.js",
     "db:seed:admin": "node backend/seed-admin.js",

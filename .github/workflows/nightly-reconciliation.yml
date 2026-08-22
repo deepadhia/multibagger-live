@@ -1,0 +1,57 @@
+name: 🌙 Nightly Reconciliation (Manual Dispatch)
+
+# Scheduled reconciliation runs 24/7 on Oracle Cloud Server daemon
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (reconcile data but skip Telegram alerts)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: nightly-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Nightly Data Reconciliation & Watchdog
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Run Nightly Reconciliation
+        env:
+          DATABASE_URL:        ${{ secrets.DATABASE_URL }}
+          JWT_SECRET:          ${{ secrets.JWT_SECRET }}
+          NVIDIA_API_KEY:      ${{ secrets.NVIDIA_API_KEY }}
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          DRY_RUN:             ${{ inputs.dry_run || 'false' }}
+        run: node backend/scripts/run-nightly-reconciliation.js ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Notify failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"chat_id\": \"${TELEGRAM_CHAT_ID}\",
+              \"text\": \"🔴 *Nightly Reconciliation FAILED*\n\nThe nightly reconciliation cron encountered an error.\",
+              \"parse_mode\": \"Markdown\"
+            }"

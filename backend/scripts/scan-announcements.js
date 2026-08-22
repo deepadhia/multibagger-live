@@ -68,11 +68,11 @@ export async function scan({ isDryRun = false, runUrl = null } = {}) {
   await resetStuckPending();
   await sendHeartbeat();
 
-  // 1. Get portfolio stocks dynamically from DB (Category = 'Core')
+  // 1. Get portfolio & watchlist stocks dynamically from DB
   const { rows: stocks } = await pool.query(
-    "SELECT id, ticker, COALESCE(nse_symbol, ticker) AS nse_symbol, bse_scrip_code, investment_thesis, category FROM stocks WHERE category = 'Core' ORDER BY ticker"
+    "SELECT id, ticker, COALESCE(nse_symbol, ticker) AS nse_symbol, bse_scrip_code, investment_thesis, category FROM stocks WHERE category IN ('Core', 'Watchlist') OR category IS NULL ORDER BY ticker"
   );
-  writeLog("SCANNER", `🔍 Monitoring ${stocks.length} Core portfolio stocks across NSE & BSE`);
+  writeLog("SCANNER", `🔍 Monitoring ${stocks.length} Core & Watchlist stocks across NSE & BSE`);
 
   // ── Run-level stats (for end-of-run summary) ──
   let alertsSent        = 0;

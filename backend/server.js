@@ -1,6 +1,7 @@
 import { app } from "./app.js";
 import { PORT } from "./config/env.js";
 import { isDriveConfigured } from "./services/drive.service.js";
+import { startNightlyServerScheduler } from "./services/nightly-scheduler.service.js";
 
 app.listen(PORT, () => {
   const BACKEND_URL = (process.env.BACKEND_URL || `http://localhost:${PORT}`).trim().replace(/\/$/, "");
@@ -19,5 +20,9 @@ app.listen(PORT, () => {
       ? "  Google Drive: configured"
       : "  Google Drive: not configured (optional; set GOOGLE_DRIVE_FOLDER_ID and service account to enable uploads)"
   );
+
+  // Arm server-side nightly reconciliation scheduler (23:30 IST)
+  startNightlyServerScheduler();
 });
+
 

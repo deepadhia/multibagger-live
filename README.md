@@ -1,133 +1,163 @@
-# MULTIBAGGER LIVE — PORTFOLIO INTELLIGENCE & THESIS GOVERNANCE PLATFORM
+# 🏛️ MULTIBAGGER LIVE — QUARTERLY FUNDAMENTAL THESIS WATCHDOG
 
 ```text
 ========================================================================================
- STATUS: FROZEN / PRODUCTION RESEARCH TOOL (CERTIFIED HISTORICAL REPLAY)
+ STATUS: FROZEN GOVERNANCE V1.0 (PRODUCTION THESIS WATCHDOG)
 ========================================================================================
 
-PURPOSE:
-Quarterly investment thesis monitoring and ADD / HOLD / REVIEW / EXIT decision support.
+PRODUCT DEFINITION:
+A point-in-time research system that tracks whether the fundamental thesis of each 
+portfolio/watchlist company is strengthening, intact, weakening, or broken based on 
+quarterly financials, management execution, order book/business developments, 
+balance-sheet changes, and previously stated commitments.
+
+CORE OPERATING QUESTION:
+"If I were deciding whether to own this company today, is the original reason
+I bought it MORE credible, EQUALLY credible, or LESS credible than 3 months ago?"
 
 WHAT THIS IS:
-• Point-in-time thesis governance assistant
-• Systematic fundamental deterioration filter & downside guardrail
+• Point-in-time fundamental thesis watchdog & quarterly governance assistant
+• Systematic business deterioration filter & downside guardrail
 • Historical point-in-time evidence reconstruction and audit tool
+• Clear separation between Business Thesis State and Valuation Context
 
 WHAT THIS IS NOT:
-• Automated algorithmic trading system
-• Guaranteed market-timing alpha generator (p = 0.357, fail to reject null)
-• Standalone investment advice
+• NOT an automated algorithmic trading engine
+• NOT a stop-loss / trailing-exit price generator
+• NOT a price-timing or entry/exit optimizer
+• NOT a historical backtest optimization toy
 
-HISTORICAL VALIDATION & PROVENANCE:
-• Evaluation Period: 2024-01-01 → 2026-08-18 (653 Trading Sessions)
-• Universe: 20 Focus Indian Midcap / Smallcap Compounders
-• Verification: 55/55 Layer-2 Independent Gates | 25/25 Mutation Tests PASS
-• Layer-3 Decision Quality: 20/20 Independent Verification Gates PASS
-• Acceptance Suite: 8/8 Fundamental Investment Archetypes PASS
-• Regression Suite: SJS Walter Pack M&A Denominator Flaw 100% PASS
-
-PRIMARY STRENGTH:
-Fundamental thesis monitoring & early multibagger discovery (64.2% ADD accuracy, 61.5% HOLD accuracy).
-
-PRIMARY WEAKNESS:
-Premature TRIM/GATE decisions on cyclical single-quarter margin dips (37.5% accuracy; ₹74.86L opportunity cost).
-
-OPERATING RULES:
-1. ADD / HOLD = Actionable fundamental research signals.
-2. TRIM / REVIEW = Flag for mandatory human review; DO NOT execute automatic sales.
-3. EXIT / KILL = Structural thesis invalidation only (e.g. governance failure, persistent multi-quarter margin collapse).
-4. UNKNOWN = Insufficient point-in-time data; DO NOTHING (never convert UNKNOWN → HOLD).
-
-NO FURTHER MODEL / INFRASTRUCTURE DEVELOPMENT PLANNED
-UNTIL SUFFICIENT NEW LIVE QUARTERLY DATA ACCUMULATES.
+THE TWO INDEPENDENT LENSES:
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ 1. BUSINESS THESIS STATE (Did the reason I own this company change?)                 │
+│    • 🟢 STRENGTHENING: Specific evidence supporting the core growth catalyst surged.  │
+│    • 🟢 INTACT: Original thesis is working; no material deterioration.               │
+│    • 🟡 WATCH: Temporary margin friction, 1-quarter noise, or evidence quality gap.  │
+│    • 🟠 AT RISK: Multiple structural pillars deteriorating (e.g. margin collapse).   │
+│    • 🔴 BROKEN: Original thesis demonstrably invalidated.                            │
+│    • ⚪ INSUFFICIENT EVIDENCE: Missing statutory disclosure (Never invent data).     │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│ 2. VALUATION CONTEXT (What expectations are already priced in?)                      │
+│    • Cheap / Deep Value Dislocation                                                  │
+│    • Fair / Re-rated Multiple                                                        │
+│    • Expensive / Priced for Perfection                                               │
+│    • Vulnerable / Multiple Squeeze                                                   │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│ 3. HUMAN CAPITAL ALLOCATION DECISION                                                 │
+│    • Strengthening + Fair/Cheap  ➔ Consider adding capital                           │
+│    • Strengthening + Expensive   ➔ Hold core position; do not chase at ATH           │
+│    • Intact + Fair/Cheap         ➔ Maintain core allocation to compound              │
+│    • At Risk                     ➔ Stop adding capital; review for turnaround        │
+│    • Broken                      ➔ Exit candidate                                    │
+└──────────────────────────────────────────────────────────────────────────────────────┘
 ========================================================================================
 ```
 
 ---
 
-## 🚀 Core Architecture Overview
+## 🚀 Core Architecture: The 4 Ingestion Engines & Quarterly Watchdog
 
-The platform operates on an institutional evidence architecture designed to prevent hallucination, eliminate lookahead bias, and separate business reality from stock price fluctuations.
+The platform operates on 4 specialized data pipelines and a point-in-time comparison engine:
 
 ```text
-       QUARTERLY FILING / AGM / CONCALL TRANSCRIPT
-                            ↓
-                    MANAGEMENT CLAIM
-  (Exact Quote, Lineage, Thesis Driver, Expected Timeframe, Measurable Target)
-                            ↓
-  ┌───────────────────────────────────────────────────┐
-  │ EPISTEMIC GUARDRAIL: Claim ≠ Operating Reality    │
-  │ (Management optimism CANNOT increase conviction)  │
-  └─────────────────────────┬─────────────────────────┘
-                            ↓
-               PRIMARY OPERATING AUDIT
-  (Revenue, PAT, Margins, Spreads, Order Intake, Capacity Intimation, Cash Flow)
-                            ↓
-            CLAIM-TO-DELIVERY RECONCILIATION
-  (NEW ➔ REAFFIRMED ➔ DELIVERED ➔ DELAYED ➔ MISSED ➔ WITHDRAWN/CHANGED)
-                            ↓
-  ┌───────────────────────────────────────────────────┐
-  │ LONGITUDINAL CLAIM CREDIBILITY LEDGER             │
-  │ • Single Temporary Miss + Plausible Rationale     │
-  │ • Repeated Misses + Shifting Excuses = Decay      │
-  └─────────────────────────┬─────────────────────────┘
-                            ↓
-  ┌───────────────────────────────────────────────────┐
-  │ 4-QUESTION DECISION JOURNAL FRAMEWORK             │
-  │ 1. Is the underlying thesis intact?               │
-  │ 2. Is the market punishment reason resolving?     │
-  │ 3. Are management milestones being delivered?     │
-  │ 4. Does current valuation leave asymmetry?        │
-  └─────────────────────────┬─────────────────────────┘
-                            ↓
-              CANONICAL EVIDENCE STATES
-  • 🟢 ADD (Accumulate / Underwrite)
-  • 🟢 HOLD (Thesis Intact — Allow Compounding)
-  • 🟡 REVIEW / TRIM (Manual Inspection Flag)
-  • 🔴 EXIT / KILL (Structural Invalidation)
+               Exchange Disclosures (LODR / Concalls / XBRL)
+                                     │
+                                     ▼
+                             Point-in-Time Data
+                                     │
+                                     ▼
+                        Evidence Extraction Engines
+                 (NIM Llama 3.1 + Financial Validator)
+                                     │
+                                     ▼
+        ┌─────────────────────────────────────────────────────────┐
+        │  1. Fundamental Thesis Engine                           │
+        │     "Is the original reason for owning the company      │
+        │      more, equally, or less credible than 3 months ago?"│
+        │     🟢 Strengthening / 🟢 Intact                         │
+        │     🟡 Watch / 🟠 At Risk / 🔴 Broken                    │
+        │     Confidence: 🟢 High / 🟡 Needs Validation           │
+        └────────────────────────────┬────────────────────────────┘
+                                     │
+                                     ▼
+        ┌─────────────────────────────────────────────────────────┐
+        │  2. Valuation Context (Context Only, Not a Signal)      │
+        │     "What expectations are already priced in?"          │
+        │     (e.g., Deep Value, Fair, Priced for Perfection)     │
+        └────────────────────────────┬────────────────────────────┘
+                                     │
+                                     ▼
+        ┌─────────────────────────────────────────────────────────┐
+        │  3. Human Capital Allocation Decision                   │
+        │     • Add / Hold Core / Gate New Capital / Review Exit  │
+        └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🏛️ Key System Layers
+## 🖥️ Server Deployment & Nightly Reconciliation Cron
 
-### 1. V12 High-Conviction Truth Layer
-- **Deep XBRL Hybrid Engine**: Ingests official exchange XML/PDF filings, extracting balance sheet drivers (**Trade Receivables, Inventory, Borrowings, Cash & Bank, Operating Cash Flow, Capex, Gross Block**).
-- **Canonical Normalization**: Standardizes and scales all metrics to Crores with mathematical reconciliation checks.
-- **Strict Point-in-Time Causality**: All decisions at timestamp $T_S$ are strictly bound to evidence published at $T_E \le T_S$ (Zero Lookahead Invariant).
+The platform runs continuously on the production Oracle Cloud Server. All scheduled crons run **on the server**, not on GitHub Actions.
 
-### 2. 4-Layer Institutional Falsification Engine
-- **Layer 1 (Evidence Layer)**: Ingests LODR filings, concall transcripts, and investor presentations with immutable provenance.
-- **Layer 2 (Falsification Layer)**: Hard kill-switch triggering structural exit when foundational thesis drivers break.
-- **Layer 3 (Root-Cause Deduplication)**: Consolidates correlated downstream symptoms (e.g. Plant Delay + Revenue Delay + OPM Compression) into a single root cause rather than double-penalizing.
-- **Layer 4 (Management Credibility & Anti-Bias Audit)**: Tracks historical commitment fulfillment per management team. Teams with repeated guidance misses incur Credibility Decay Penalties (`CREDIBILITY_DECAY -30%`).
+### 1. In-Process 24/7 Server Daemon (Recommended)
+Starting the Express server automatically arms the in-process nightly scheduler ([`backend/services/nightly-scheduler.service.js`](file:///f:/Personal%20Projects/multibagger-live/backend/services/nightly-scheduler.service.js)):
+```bash
+# Start backend server via PM2 or node:
+npm run server
+# or in dev mode:
+npm run server:dev
+```
 
-### 3. Version B Valuation Expectations Engine
-- **Lens 1 (Historical Distribution)**: Evaluates point-in-time trailing P/E against rolling 3Y/5Y/7Y distributions with strict listing depth guards ($<500$ days $\rightarrow$ `INSUFFICIENT_HISTORY`).
-- **Lens 2 (Market-Implied Expectations)**: Computes the exact 3-year EPS CAGR required by the current stock price across terminal exit multiples (25x, 30x, 35x).
-- **Expectation Asymmetry**: Evaluates $\text{Evidence Growth} - \text{Market-Implied CAGR}$ to govern sizing and prevent premature exits on high-growth M&A compounders (e.g. SJS Walter Pack integration).
+### 2. Standalone System Crontab
+If running via Linux system crontab on the server:
+```bash
+# Add to crontab (crontab -e) to run at 23:30 IST / 18:00 UTC:
+30 23 * * * cd /path/to/multibagger-live && npm run reconcile:nightly >> /var/log/reconciliation.log 2>&1
+```
+
+### 3. What the Server Executes Every Night at 23:30 IST
+1. **Daily Price Refresh**: Refreshes closing prices for all stocks in PostgreSQL.
+2. **Asynchronous Gap Reconciler**: Ingests concall transcripts & presentations filed days after board results.
+3. **Announcement & AGM Scanner**: Ingests LODR filings across NSE + BSE (`Analyst / Investor Meet`, `Company Update`, `Result`, etc.).
+4. **Multi-Year Growth Catalyst Audit**: Identifies major order wins and 2-year revenue roadmaps.
+5. **Idempotent Morning Digest**: Deduplicates alerts using SHA-256 hashes; sends a clean morning digest to Telegram with zero repetitions.
+
+---
+
+## 📊 Live Master Watchdog Report Generation
+
+To generate the comprehensive, skeptical 20-stock quarterly thesis report at any time:
+```bash
+node scripts/generate_quarterly_thesis_watchdog.js
+```
+The report is saved to [`reports/research_quality/QUARTERLY_THESIS_WATCHDOG_REPORT.md`](file:///f:/Personal%20Projects/multibagger-live/reports/research_quality/QUARTERLY_THESIS_WATCHDOG_REPORT.md).
+
+---
+
+## 🛡️ Verified Universe Data Quality
+
+- **Total Files Audited**: 587 statutory filings across 20 focus compounders (`FY24-Q1` through `FY27-Q1`).
+- **Binary Integrity**: 479 valid binary `%PDF` documents, 108 valid XBRL `<?xml` documents.
+- **Data Quality**: 0 corrupted files, 0 zero-byte placeholders, 0 unparsed HTML error redirects.
 
 ---
 
 ## 🧪 Production Test & Verification Suites
 
-The repository contains 5 canonical, zero-dependency Node.js verification suites:
+The repository contains canonical, zero-dependency Node.js verification suites:
 
 ```bash
-# 1. Final 8-Archetype Investment Acceptance Test Suite (8/8 PASS)
-node scripts/test_8_archetypal_acceptance_cases.js
+# 1. 4-Pipeline Live Ingestion Audit (News, Transcripts, XBRL, Order Wins)
+node scripts/test_all_4_ingestion_pipelines.js
 
-# 2. SJS Walter Pack M&A Denominator Flaw Regression Test (4/4 PASS)
-node scripts/test_sjs_walter_pack_valuation_regression.js
+# 2. Negative Control Firewall (9/9 PASS)
+node scripts/test_negative_control_firewall.js
 
-# 3. Layer-2 Independent Certifier (55 Gates | 25 Mutations PASS)
-node scripts/certify_historical_replay.js
+# 3. Adversarial Integrity Suite (5/5 PASS)
+node scripts/test_adversarial_integrity_suite.js
 
-# 4. Layer-3 Research Quality Certifier (20 Gates PASS)
-node scripts/certify_research_quality.js
-
-# 5. Master 18-Phase Forensic Replay & Reconciliation Pipeline
-node scripts/run_forensic_replay_and_verify.js
+# 4. Binary Data Integrity & Corruption Audit (587/587 Files Verified)
+node scratch/verify_sync_integrity.js
 ```
 
 ---

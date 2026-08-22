@@ -297,11 +297,13 @@ export async function resetStuckPending(timeoutMs = 15 * 60 * 1000) {
  * or concall just because it was filed under a different category.
  */
 const BSE_CATEGORIES = [
-  "Company Update",       // General announcements, orders, MOUs, awards
-  "Result",               // Financial results
-  "AGM/EGM",             // Board meetings, AGMs
-  "Corp. Action",         // Dividends, splits, buybacks
-  "Insider Trading / SAST", // Bulk deals, promoter activity
+  "Company Update",          // General announcements, orders, MOUs, awards
+  "Result",                  // Financial results
+  "AGM/EGM",                // Board meetings, AGMs
+  "Corp. Action",            // Dividends, splits, buybacks
+  "Insider Trading / SAST",   // Bulk deals, promoter activity
+  "Analyst / Investor Meet", // Concall intimations, investor meets, presentations, transcripts
+  "Board Meeting",           // Board meeting notices & outcomes
 ];
 
 export async function fetchBseAnnouncements(scripCode) {
