@@ -1,368 +1,53 @@
-# MBIQ — Portfolio Intelligence Platform
-
-A comprehensive stock portfolio tracker and earnings call analysis tool built with React, Supabase, and AI-powered transcript analysis.
-
-## Tech Stack
-
-- **Frontend**: React + Vite + TypeScript + Tailwind CSS + shadcn/ui
-- **Backend**: Supabase (Postgres, Edge Functions, RLS)
-- **Charts**: Recharts
-- **State**: TanStack React Query
-
----
-
-## Local Development Setup
-
-### Prerequisites
-
-- [Node.js](https://github.com/nvm-sh/nvm#installing-and-updating) (v18+)
-- [Supabase CLI](https://supabase.com/docs/guides/cli/getting-started) (`npm install -g supabase`)
-- [Docker](https://docs.docker.com/get-docker/) (required for local Supabase)
-
-### 1. Clone & Install
-
-```sh
-git clone <YOUR_GIT_URL>
-cd <YOUR_PROJECT_NAME>
-npm install
-```
-
-### 2. Start Local Supabase
-
-This will spin up a local Postgres database and apply all migrations from `supabase/migrations/`:
-
-```sh
-supabase start
-```
-
-After starting, the CLI will output local credentials:
-
-```
-API URL:    http://127.0.0.1:54321
-anon key:   eyJhbGci...
-service_role key: eyJhbGci...
-DB URL:     postgresql://postgres:postgres@127.0.0.1:54322/postgres
-```
-
-### 3. Configure Environment
-
-Create a `.env.local` file in the project root (do **not** commit this file):
-
-```env
-VITE_SUPABASE_URL=http://127.0.0.1:54321
-VITE_SUPABASE_PUBLISHABLE_KEY=<anon_key_from_supabase_start>
-```
-
-Use `.env.frontend.example` for Vite (`VITE_*`) and `.env.example` for the Express backend (`DATABASE_URL`, `JWT_SECRET`, etc.); merge both into `.env.local` for local dev.
-
-### 3.0 Admin login (Express + UI)
-
-The React app and Express API are gated behind a single admin account (JWT in an httpOnly cookie).
-
-1. Add to `.env.local` (same file as `DATABASE_URL`):
-
-   ```env
-   JWT_SECRET=<output of: openssl rand -hex 32>
-   ```
-
-2. Apply DB migrations (includes `app_admin_users`):
-
-   ```sh
-   npm run db:migrate
-   ```
-
-3. Set a strong password and seed the admin user (default username `admin`):
-
-   ```env
-   ADMIN_SEED_PASSWORD=your_secure_password_at_least_8_chars
-   ```
-
-   ```sh
-   npm run db:seed:admin
-   ```
-
-4. Start the backend (`npm run server`) and frontend (`npm run dev`), then open `/login`.
-
-**Note:** This protects the **Express** API and downloaded **files** under `/files`. The Supabase client in the browser still uses the public anon key; for stronger data isolation you would add Supabase Auth + RLS separately.
-
-### 3.1 Connect Your Own Supabase Project (Cloud)
-
-If you want to use your own hosted Supabase project:
-
-1. Create a new project in the Supabase dashboard.
-2. Link this repo to that project:
-
-   ```sh
-   supabase login
-   supabase link --project-ref <your_project_ref>
-   ```
-
-3. Apply the schema + seed data to your project:
-
-   ```sh
-   supabase db reset
-   ```
-
-4. In `.env.local`, set your cloud project values:
-
-   ```env
-   VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
-   VITE_SUPABASE_PUBLISHABLE_KEY=<your_anon_public_key>
-   ```
-
-5. Set edge function secrets (service role key and external APIs) for that project:
-
-   ```sh
-   supabase secrets set SUPABASE_URL=https://<your-project-ref>.supabase.co
-   supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<your_service_role_key>
-   supabase secrets set SCREENER_SESSION_ID=<your_screener_session_cookie>
-   supabase secrets set SCREENER_CSRF_TOKEN=<your_screener_csrf_token>
-   ```
-
-6. Deploy the edge functions:
-
-   ```sh
-   supabase functions deploy --project-ref <your_project_ref> --all
-   ```
-
-### 4. Configure Edge Function Secrets
-
-Edge functions need secrets to operate. Set them for local development:
-
-```sh
-# Required for edge functions to access the database
-supabase secrets set SUPABASE_URL=http://127.0.0.1:54321
-supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<service_role_key_from_supabase_start>
-
-# Required for Screener.in financial data scraping
-supabase secrets set SCREENER_SESSION_ID=<your_screener_session_cookie>
-supabase secrets set SCREENER_CSRF_TOKEN=<your_screener_csrf_token>
-```
-
-1. Go to [screener.in](https://www.screener.in/) and log in
-2. Open browser DevTools → Application → Cookies
-3. Copy the values of `sessionid` and `csrftoken`
-
-#### 4.1. Real-Time Announcement Pipeline (Backend only)
-To enable the **Thesis-Aware** corporate announcement scanner:
-1.  **NVIDIA NIM**: Set `NVIDIA_API_KEY` for Llama 3.1 classification.
-2.  **Telegram**: Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` for real-time alerts.
-3.  **Supabase**: The scanner uses `DATABASE_URL` (Direct PG connection) for high-performance ingestion.
-4.  **Investment Thesis**: Ensure the `investment_thesis` column in the `stocks` table is populated for best results.
-
-#### 4.2. Cloudflare Workflow Dispatcher (Scheduler)
-To avoid runner allocation limits and run scans efficiently on market schedules, trigger dispatches via Cloudflare Workers:
-1. Set up a Classic or Fine-grained GitHub Personal Access Token (PAT) with `workflow` (classic) or `Actions: Read and write` (fine-grained) scope.
-2. Deploy the dispatcher from the `cloudflare-dispatcher/` directory:
-   ```sh
-   cd cloudflare-dispatcher
-   npm install
-   npm run deploy
-   ```
-3. Set the GitHub PAT on your Cloudflare Worker:
-   ```sh
-   npx wrangler secret put GITHUB_PAT --name multibagger-workflow-dispatcher
-   ```
-4. The worker consolidates the schedules into a single cron expression (`0,30 3,5,8,10,14,16 * * *`) to comply with the Cloudflare Free tier limit (5 crons max), triggering scans covering both market hours and late evening/night filings:
-   - **03:00 UTC (08:30 AM IST):** Results reminders (`remind-results.yml`)
-   - **03:30, 05:30, 08:00, 10:00 UTC:** Market sweeps (`scan-announcements.yml`, Mon-Sat)
-   - **14:30 UTC (08:00 PM IST) & 16:30 UTC (10:00 PM IST):** Evening/night sweeps (`scan-announcements.yml`, Mon-Sat)
-
-
-### 5. Serve Edge Functions Locally
-
-In a separate terminal:
-
-```sh
-supabase functions serve
-```
-
-### 6. Start the Frontend
-
-```sh
-npm run dev
-```
-
-The app will be available at `http://localhost:5173`.
-
----
-
-## Project Structure
-
-```
-├── src/
-│   ├── components/       # React components
-│   ├── hooks/            # Custom React hooks (useStocks, useFinancials, etc.)
-│   ├── integrations/     # Auto-generated Supabase client & types
-│   ├── lib/              # Utilities, signals detection, types
-│   └── pages/            # Route pages (Index, StocksPage, StockDetailPage, etc.)
-├── supabase/
-│   ├── config.toml       # Supabase project config
-│   ├── migrations/       # Database migrations (auto-applied on `supabase start`)
-│   └── functions/        # Edge functions
-│       ├── fetch-price/          # Yahoo Finance price fetcher
-│       ├── fetch-financials/     # Screener.in financial data scraper
-│       ├── fetch-deals/          # Bulk/insider deal fetcher
-│       ├── fetch-sector-indices/ # Nifty sector index tracker
-│       ├── fetch-results-calendar/ # Upcoming results date fetcher
-│       ├── refresh-all-prices/   # Batch price refresh
-│       ├── refresh-all-financials/ # Batch financials refresh
-│       ├── analyze-transcript/   # AI transcript analysis
-│       ├── run-priority-backfill.js # Utility for bulk XBRL & Screener backfill
-```
-
-## Key Features
-
-- **Dual-Exchange Announcement Scanner**: Integrated real-time ingestion from **BSE** and **NSE** with automated "Merge Model" deduplication.
-- **Thesis-Aware AI Classification**: Uses the highly powerful **Llama 3.1 70B** model (via NVIDIA NIM) to classify news not just by topic, but by how it impacts your specific **Investment Thesis**, generating a mandatory **qualitative overall verdict** (overall good/strong, flat, or bad/weak) at the absolute start of every summary.
-- **Full Document Intelligence**: Automatic full-scale extraction and analysis of PDF attachments (up to **60,000 characters**), ensuring complete quarterly financial tables, segmental metrics, and auditor reviews are fully parsed and fed to the AI context.
-- **Sentiment-First Telegram Alerts**: High-signal, structured notifications that prioritize **IMPACT (POSITIVE/NEGATIVE)** and include portfolio category context, key figures, and direct document links.
-- **Automatic Result Date Sync**: Detects upcoming financial result dates in filings and automatically updates the portfolio countdown.
-- **Announcements**: On each stock’s detail page, an **Announcements** tab lists downloaded filings (earnings, concall transcripts, investor presentations) by quarter and type with **View** links. Use **Download filings** to fetch from NSE & Screener.
-- **Google Drive upload** (optional): Upload announcements to a Drive folder in a structured layout. See [docs/GOOGLE_DRIVE_SETUP.md](docs/GOOGLE_DRIVE_SETUP.md) for creating a service account and API key.
-
-## Institutional Research Architecture & Master Roadmap
-
-`multibagger-live` is structured around a strict 4-Phase Institutional Research Architecture designed to transition AI equity research from speculative text summarization to **auditable, deterministic, evidence-grounded investment decision infrastructure**.
+# MULTIBAGGER LIVE — PORTFOLIO INTELLIGENCE & THESIS GOVERNANCE PLATFORM
 
 ```text
-               RAW SOURCES (SEBI LODR Filings / Concall Transcripts)
-                                        │
-                                        ▼
-                    PHASE 1 — FIDELITY & FACT LOCK [🟢 FROZEN]
-                    • Fact Registry & Disambiguation Rules
-                    • 8 Machine Pre-LLM Contamination Filters
-                    • 352/352 DB Read-Back Regression Audit (100% PASS)
-                                        │
-                                        ▼
-                    PHASE 2 — EVIDENCE GOVERNANCE & LINEAGE [🟢 FROZEN]
-                    • Cryptographic SHA-256 Document & Location Hashes
-                    • 3-Dimensional Classification (Claim Type, Provenance, Verification)
-                    • Relational Claim Graph Edges (claim_dependencies)
-                    • Unit-Aware Metric Reconciliation Policy (Rounding vs Material Conflict)
-                    • Fail-Closed Replay Engine (replayClaimLineage())
-                    • Engineering Gate (6/6 Failure Injection Tests PASS)
-                    • Coverage Gate (11/11 Holdings x 100% Material Claims Replayable)
-                                        │
-                                        ▼
-                    PHASE 3 — DETERMINISTIC THESIS ENGINE [🟢 FROZEN]
-                    • Primary Evidence -> Verified Claims -> Deterministic Metrics -> Thesis State
-                    • 4 Explicit Thesis States (Strengthening | Stable | Weakening | Broken)
-                    • Longitudinal Multi-Quarter Trajectories & Management Credibility Ledger
-                    • Point-in-Time Dislocation Classifier & Falsification Engine
-                                        │
-                                        ▼
-                    PHASE 4 — VALUATION EXPECTATION ENGINE & REPLAY [🟢 FROZEN (RESEARCH_BASELINE_V1)]
-                    • Version A: Point-in-Time Fundamental Decision Diagnosis (88.9% Precision Baseline)
-                    • Version B Lens 1: Multi-Window Historical P/E Percentiles (3Y/5Y/7Y + Depth Guard)
-                    • Version B Lens 2: Market-Implied 3Y Growth Expectations across Scenarios [25x, 30x, 35x]
-                    • Expectation Asymmetry Synthesis (Evidence CAGR - Implied CAGR)
-                    • Sizing & Valuation Reservation Governor (SEVERE, HIGH, MODERATE, LOW, INSUFFICIENT_HISTORY)
-                    • Immutable Decision Journal & Double-Blind 6M/12M Forward Outcome Evaluator
+========================================================================================
+ STATUS: FROZEN / PRODUCTION RESEARCH TOOL (CERTIFIED HISTORICAL REPLAY)
+========================================================================================
+
+PURPOSE:
+Quarterly investment thesis monitoring and ADD / HOLD / REVIEW / EXIT decision support.
+
+WHAT THIS IS:
+• Point-in-time thesis governance assistant
+• Systematic fundamental deterioration filter & downside guardrail
+• Historical point-in-time evidence reconstruction and audit tool
+
+WHAT THIS IS NOT:
+• Automated algorithmic trading system
+• Guaranteed market-timing alpha generator (p = 0.357, fail to reject null)
+• Standalone investment advice
+
+HISTORICAL VALIDATION & PROVENANCE:
+• Evaluation Period: 2024-01-01 → 2026-08-18 (653 Trading Sessions)
+• Universe: 20 Focus Indian Midcap / Smallcap Compounders
+• Verification: 55/55 Layer-2 Independent Gates | 25/25 Mutation Tests PASS
+• Layer-3 Decision Quality: 20/20 Independent Verification Gates PASS
+• Acceptance Suite: 8/8 Fundamental Investment Archetypes PASS
+• Regression Suite: SJS Walter Pack M&A Denominator Flaw 100% PASS
+
+PRIMARY STRENGTH:
+Fundamental thesis monitoring & early multibagger discovery (64.2% ADD accuracy, 61.5% HOLD accuracy).
+
+PRIMARY WEAKNESS:
+Premature TRIM/GATE decisions on cyclical single-quarter margin dips (37.5% accuracy; ₹74.86L opportunity cost).
+
+OPERATING RULES:
+1. ADD / HOLD = Actionable fundamental research signals.
+2. TRIM / REVIEW = Flag for mandatory human review; DO NOT execute automatic sales.
+3. EXIT / KILL = Structural thesis invalidation only (e.g. governance failure, persistent multi-quarter margin collapse).
+4. UNKNOWN = Insufficient point-in-time data; DO NOTHING (never convert UNKNOWN → HOLD).
+
+NO FURTHER MODEL / INFRASTRUCTURE DEVELOPMENT PLANNED
+UNTIL SUFFICIENT NEW LIVE QUARTERLY DATA ACCUMULATES.
+========================================================================================
 ```
-
-### 1. Phase 1: Fact Lock & Fidelity Engine (🟢 Frozen)
-* **Goal**: Prevent synthesis layer from introducing metric, period, label, or guidance errors on canonical facts.
-* **Architecture**: Evaluates 8 machine pre-synthesis gates across all 4 institutional prompt types.
-* **Verification Status**: **352/352 Gate Evaluations Passed (100% 🟢)** on live Supabase DB Read-Back across all core portfolio holdings (`INOXINDIA`, `ANANTRAJ`, `SJS`, `TIMETECHNO`, `SKIPPER`, `GRAVITA`, `CCL`, `LUMAXTECH`, `HBLENGINE`, `QPOWER`, `SHAKTIPUMP`).
-
-### 2. Phase 2: Evidence Governance & Auditable Claim Lineage (🟢 Frozen)
-* **Goal**: Prove exact source provenance for every material investment claim.
-* **Hard Contract**: *"No material claim gets VERIFIED unless its evidence chain can be deterministically replayed and passes validation."*
-* **Key Components**:
-  - **Cryptographic Hashes**: SHA-256 document version hash (`source_document_hash`) and location hash (`source_location_hash`).
-  - **3-Dimensional Separated Schema**: Claim Type (`FINANCIAL_FACT`, `MANAGEMENT_CLAIM`, `DERIVED_FACT`, etc.), Evidence Provenance (`PRIMARY_SOURCE`, `MANAGEMENT_SOURCE`, etc.), Verification Status (`VERIFIED`, `ROUNDING_VARIANCE`, `MATERIAL_CONFLICT`, `UNVERIFIED`).
-  - **Relational Claim Graph Edge Table (`claim_dependencies`)**: Recursive SQL graph traversals for derived metrics (e.g. EBITDA Margin Delta).
-  - **Fail-Closed Security Philosophy**: Replay fails closed (`replay_status: BLOCKED`, `verification_status: UNVERIFIED`) on hash mismatch, entity mismatch, period mismatch, material conflict, or broken dependency links.
-* **Release Gates**:
-  - **Engineering Gate**: 🟢 **6/6 Automated Failure Injection Tests PASSED** (`Source Identity`, `Location Tracking`, `Entity/Period Isolation`, `Metric Reconciliation`, `Recursive Graph Replay`, `Tamper Fail-Closed`).
-  - **Coverage Gate**: 🟢 **11/11 Holdings × 100% Material Claims Replayable** (`audit_output/PHASE_2_LINEAGE_COVERAGE_REPORT.md`).
-
-### 3. Phase 3: Deterministic Thesis Engine & Management Credibility (🟢 Frozen)
-* **Goal**: Isolate business reality from stock price fluctuations and management optimism.
-* **Key Components**:
-  - **Dislocation Classifier**: Measures whether price drop is an unjustified market fear or an operating execution break.
-  - **Thesis Survival Tracker**: Evaluates if the foundational multibagger driver is intact, delayed, or broken.
-  - **Management Credibility Engine**: Tracks historical promise fulfillment across quarters, applying decay penalties for repeated guidance misses.
-
-### 4. Phase 4: Valuation Expectations, Expectation Gap & Longitudinal Replay (🟢 Frozen)
-* **Goal**: Prevent entering fundamentally sound businesses at extreme multiples while identifying asymmetric opportunities.
-* **Key Components**:
-  - **Version A Baseline**: Evaluates pure fundamental conviction and concern resolution without valuation bias.
-  - **Version B Lens 1**: Evaluates point-in-time trailing P/E against rolling 3Y/5Y/7Y distributions with strict listing depth guards ($<500$ days $\rightarrow$ `INSUFFICIENT_HISTORY`).
-  - **Version B Lens 2**: Computes the exact 3-year EPS CAGR required by the current price across terminal exit multiples (25x, 30x, 35x).
-  - **Expectation Asymmetry**: Evaluates $\text{Evidence Growth} - \text{Market-Implied CAGR}$ to govern sizing and valuation reservations (`SEVERE`, `HIGH`, `MODERATE`, `LOW`).
-  - **Double-Blind Outcome Evaluator**: Evaluates 6M and 12M forward returns completely decoupled from $T_0$ decision generation.
-* **Verification & Replay Scripts**:
-  - `node scripts/run_longitudinal_replay.js --quick` (Unified Replay Suite)
-  - `node scripts/test_pe_denominator_regression.js` (Point-in-Time Anti-Lookahead Regression Suite)
-  - `node scripts/run_version_b_comparative_replay.js` (Version A vs Version B Comparative Engine)
 
 ---
 
-## V12 High-Conviction Truth Layer
+## 🚀 Core Architecture Overview
 
-The platform now operates on a sophisticated **V12 Truth Layer**, upgrading from speculative AI inference to high-fidelity, mechanically verified official data.
-
-### 1. Official XBRL Hybrid Engine (V3)
-- **Deep Extraction Beyond P&L**: Moves beyond simple revenue/profit tracking to extract high-impact metrics including **Receivables, Inventory, Borrowings, Cash & Bank, CFO, Capex, and Equity**.
-- **Dual-Engine Logic**: Combines fast NSE API data for core quarterly results with deep local XBRL parsing for balance sheet and cash flow enrichment.
-- **Automated Cloud Backup**: Integrated Google Drive archival. Every raw XBRL filing is automatically uploaded to a structured hierarchy (`Announcements/SYMBOL/QUARTER/`) and linked in the database.
-- **Unified Announcement Hub**: XBRL filings are cross-referenced in the central corporate feed, allowing one-click access from the UI directly to the source document on Drive.
-- **Canonical Normalization**: Automatically standardizes and scales all metrics to Crores, ensuring consistency across diverse filing styles.
-- **Automated Validation**: Built-in math checks flag logic errors in corporate reporting (e.g., PAT exceeding Revenue, misstated Expenses).
-
-### 2. Surgical AI Prompt Wiring
-- **Quarterly Time-Travel**: The `CopyGeminiPrompt` UI strictly scopes historical data to prevent future knowledge from bleeding into past quarter AI backtests.
-- **Truth-Based Momentum**: The `Last 4Q Trend` (Section B) is calculated deterministically from the official XBRL pipeline, not inferred by AI, ensuring high-accuracy `Positive/Negative` momentum signals.
-
-### 3. Dual-Tier Metrics Schema & Hybrid Rules
-- **Critical Metrics**: Full source, confidence, and period tracking for high-conviction drivers.
-- **Screener Fallback**: Used strategically for annual metrics (ROCE/ROE) and TTM Balance Sheet data when XBRL is sparse.
-- **Kill-Switch Supremacy**: High-severity anomalies explicitly override Multibagger Mode for immediate `CUT` signals.
-- **Promoter Selling Trends**: Automated detection and penalization of consistent distribution trends over multiple quarters.
-- **Explained Cooldown**: Intelligent handling of one-time explained selling events (block deals, PE exits).
-- **Event-Driven Intelligence**: Real-time corporate action ingestion (BSE/NSE) that updates conviction in between quarterly reports.
-
-### 4. 4-Layer Institutional Falsification Engine (V13 Thesis Audit)
-The platform features an automated, anti-confirmation-bias thesis audit engine:
-
-```text
-┌───────────────────────────────────────────────────────────────────────────────────────────┐
-│                           4-LAYER INSTITUTIONAL FALSIFICATION ENGINE                      │
-├───────────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                           │
-│ 1. 📄 LAYER 1: EVIDENCE LAYER                                                            │
-│    • Ingests raw LODR PDF filings, concall transcripts, investor presentations, & AGMs.  │
-│    • Extracts immutable facts strictly separated from interpretations and verdicts.       │
-│                                                                                           │
-│ 2. ⚡ LAYER 2: FALSIFICATION LAYER                                                        │
-│    • Disproving evidence audit with states: NONE ➔ EMERGING ➔ CONFIRMED.                  │
-│    • Hard Kill-Switch: STRUCTURAL THESIS BREAK ➔ THESIS INVALIDATED (Score Irrelevant).   │
-│                                                                                           │
-│ 3. 🧩 LAYER 3: ROOT-CAUSE DEDUPLICATION LAYER                                            │
-│    • Groups correlated downstream symptoms into ONE root-cause bucket:                    │
-│        [Plant Delay + Revenue Delay + OPM Compression] ──► ROOT CAUSE: Execution Delay    │
-│    • Applies ONE root-cause penalty instead of double-counting symptoms mechanically.     │
-│                                                                                           │
-│ 4. 🎯 LAYER 4: CONVICTION & ANTI-BIAS AUDIT LAYER                                         │
-│    • Anti-Management Bias Rule: Management Explanation ≠ Recovery Proof!                   │
-│    • State Machine:                                                                       │
-│      Miss ➔ Explanation ➔ Explanation Verified ➔ Recovery Evidence ➔ Conviction Restored│
-└───────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-- **Management Reliability Score**: Tracks historical commitment fulfillment accuracy per management team. Teams with 85%+ reliability receive full credibility weighting, while teams with repeated misses incur **Credibility Decay Penalties** (`CREDIBILITY_DECAY -30%`).
-- **Concall-Aware Action Signals**: Fast tracks `🟢 BUY MORE / ACCUMULATE (Clean Guidance Beat)` on unambiguous beats, while outputting `⏳ WAIT FOR CONCALL TRANSCRIPT` on complex or margin-drag quarters until concall explanations are audited against empirical evidence.
-
-### 5. Decision Engine (Prompt Generator)
-- **Mathematical Pre-Processing**: Calculates tolerance-based trends (`±5%` growth, `±0.5%` margins) to filter out noise and extract true momentum before passing data to the LLM.
-- **Smart Data Handling**: Auto-detects holes in data, switches to 2-quarter trends dynamically, and labels missing data as `NOT DISCLOSED` to strictly prevent hallucination.
-- **Source Attribution**: Injects `Source:` labels alongside pre-processed metrics to guarantee the AI correctly attributes values.
-- **Smart Toggles**: UI controls to toggle sections of the prompt (Ownership, Valuations, Previous Verdict) to actively manage the context window size and precision.
-
-### 6. Phase 4E/4F Institutional Decision Journal & Management Evidence Layer
-The platform implements an institutional live research loop that decouples fundamental evidence classification from human position-sizing decisions:
+The platform operates on an institutional evidence architecture designed to prevent hallucination, eliminate lookahead bias, and separate business reality from stock price fluctuations.
 
 ```text
        QUARTERLY FILING / AGM / CONCALL TRANSCRIPT
@@ -388,7 +73,7 @@ The platform implements an institutional live research loop that decouples funda
   └─────────────────────────┬─────────────────────────┘
                             ↓
   ┌───────────────────────────────────────────────────┐
-  │ 4-QUESTION DECISION JOURNAL FRAMEWORK (PHASE 4F)  │
+  │ 4-QUESTION DECISION JOURNAL FRAMEWORK             │
   │ 1. Is the underlying thesis intact?               │
   │ 2. Is the market punishment reason resolving?     │
   │ 3. Are management milestones being delivered?     │
@@ -396,53 +81,106 @@ The platform implements an institutional live research loop that decouples funda
   └─────────────────────────┬─────────────────────────┘
                             ↓
               CANONICAL EVIDENCE STATES
-  • EVIDENCE_SUPPORTS_RECONSIDERATION  (e.g., CCL, Skipper, Gravita)
-  • WAITING_FOR_MARKET_RECOGNITION     (Compounding ahead of price recognition)
-  • STAGED_OBSERVATION_WITH_RESERVATIONS (Active balance sheet/dilution risks)
-  • REASSESS_EXECUTION_DO_NOT_ADD      (Operating deterioration; strictly do not add)
-  • THESIS_RESTRUCTURED                (Structural demerger / corporate split)
+  • 🟢 ADD (Accumulate / Underwrite)
+  • 🟢 HOLD (Thesis Intact — Allow Compounding)
+  • 🟡 REVIEW / TRIM (Manual Inspection Flag)
+  • 🔴 EXIT / KILL (Structural Invalidation)
 ```
 
-- **Three Temporal Research Clocks**:
-  - **Quarterly Clock**: Results filing $\rightarrow$ Full thesis audit and concern resolution check.
-  - **Mid-Quarter Event Clock**: Order wins, QIP, capex, demerger filings $\rightarrow$ Targeted driver updates.
-  - **Long-Term Promise Clock**: AGM multi-year targets (e.g. Vision 2028) $\rightarrow$ Multi-quarter credibility tracking.
-- **Longitudinal Replay Suite (`scripts/run_longitudinal_replay.js`)**: Evaluates quarter-by-quarter point-in-time decisions with zero look-ahead bias across 6M/12M forward outcomes, recording decision quality and knowable failure rates.
+---
 
-## Database
+## 🏛️ Key System Layers
 
-All tables have RLS enabled. Migrations in `supabase/migrations/` are applied automatically when you run `supabase start`. Key tables:
+### 1. V12 High-Conviction Truth Layer
+- **Deep XBRL Hybrid Engine**: Ingests official exchange XML/PDF filings, extracting balance sheet drivers (**Trade Receivables, Inventory, Borrowings, Cash & Bank, Operating Cash Flow, Capex, Gross Block**).
+- **Canonical Normalization**: Standardizes and scales all metrics to Crores with mathematical reconciliation checks.
+- **Strict Point-in-Time Causality**: All decisions at timestamp $T_S$ are strictly bound to evidence published at $T_E \le T_S$ (Zero Lookahead Invariant).
 
-| Table | Purpose |
-|-------|---------|
-| `stocks` | Portfolio stocks with thesis & tracking config |
-| `prices` | Daily price history |
-| `financial_metrics` | Annual financial data (ROCE, ROE, etc.) |
-| `financial_results` | Quarterly results |
-| `shareholding` | Quarterly shareholding pattern |
-| `peer_comparison` | Peer company metrics |
-| `transcript_analysis` | AI-analyzed earnings call data |
-| `quarterly_snapshots` | V5 quarterly thesis snapshots |
-| `management_promises` | Tracked management commitments |
-| `bulk_deals` / `insider_trades` | Deal activity |
-| `sector_indices` | Nifty sector index prices |
-| `corporate_announcements` | AI-classified real-time filings (BSE/NSE) |
+### 2. 4-Layer Institutional Falsification Engine
+- **Layer 1 (Evidence Layer)**: Ingests LODR filings, concall transcripts, and investor presentations with immutable provenance.
+- **Layer 2 (Falsification Layer)**: Hard kill-switch triggering structural exit when foundational thesis drivers break.
+- **Layer 3 (Root-Cause Deduplication)**: Consolidates correlated downstream symptoms (e.g. Plant Delay + Revenue Delay + OPM Compression) into a single root cause rather than double-penalizing.
+- **Layer 4 (Management Credibility & Anti-Bias Audit)**: Tracks historical commitment fulfillment per management team. Teams with repeated guidance misses incur Credibility Decay Penalties (`CREDIBILITY_DECAY -30%`).
 
-## Useful Commands
+### 3. Version B Valuation Expectations Engine
+- **Lens 1 (Historical Distribution)**: Evaluates point-in-time trailing P/E against rolling 3Y/5Y/7Y distributions with strict listing depth guards ($<500$ days $\rightarrow$ `INSUFFICIENT_HISTORY`).
+- **Lens 2 (Market-Implied Expectations)**: Computes the exact 3-year EPS CAGR required by the current stock price across terminal exit multiples (25x, 30x, 35x).
+- **Expectation Asymmetry**: Evaluates $\text{Evidence Growth} - \text{Market-Implied CAGR}$ to govern sizing and prevent premature exits on high-growth M&A compounders (e.g. SJS Walter Pack integration).
 
-```sh
-supabase start          # Start local Supabase (applies migrations)
-supabase stop           # Stop local Supabase
-supabase db reset       # Reset DB and re-apply all migrations
-supabase functions serve # Serve edge functions locally
-npm run dev             # Start frontend dev server
-npm run server          # Start Express backend (Announcement scanner & Files)
-npm run build           # Production build
+---
+
+## 🧪 Production Test & Verification Suites
+
+The repository contains 5 canonical, zero-dependency Node.js verification suites:
+
+```bash
+# 1. Final 8-Archetype Investment Acceptance Test Suite (8/8 PASS)
+node scripts/test_8_archetypal_acceptance_cases.js
+
+# 2. SJS Walter Pack M&A Denominator Flaw Regression Test (4/4 PASS)
+node scripts/test_sjs_walter_pack_valuation_regression.js
+
+# 3. Layer-2 Independent Certifier (55 Gates | 25 Mutations PASS)
+node scripts/certify_historical_replay.js
+
+# 4. Layer-3 Research Quality Certifier (20 Gates PASS)
+node scripts/certify_research_quality.js
+
+# 5. Master 18-Phase Forensic Replay & Reconciliation Pipeline
+node scripts/run_forensic_replay_and_verify.js
 ```
 
-## Deployment
+---
 
-- **Frontend**: Deployed via Vercel (see `vercel.json` configuration).
-- **Backend & Edge Functions**: Deployed to Supabase Cloud (with backend Express API hosted on Railway/Render).
-- **Scheduler (Cloudflare Worker)**: Deployed to Cloudflare Workers (`multibagger-workflow-dispatcher`) to handle automated scan schedules.
-- **Scanner (GitHub Actions)**: Configured via `.github/workflows/` files, triggered externally by the Cloudflare Worker via GitHub workflow dispatch API.
+## 💻 Tech Stack & Local Setup
+
+### Tech Stack
+- **Frontend**: React + Vite + TypeScript + Tailwind CSS + shadcn/ui
+- **Backend**: Node.js / Express + Supabase (Postgres with RLS)
+- **Data Pipelines**: Official NSE/BSE XBRL Engine + PDF Transcript Map-Reduce Parser
+- **Charts & Visualization**: Recharts + TanStack React Query
+
+### Prerequisites
+- Node.js (v18+)
+- Supabase CLI & Docker
+
+### Setup Instructions
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Start local Supabase instance
+supabase start
+
+# 3. Configure environment
+# Copy .env.example to .env.local and update SUPABASE keys
+
+# 4. Run development server
+npm run dev
+```
+
+---
+
+## 📋 Database Architecture
+
+Key database tables with Row Level Security (RLS) enabled:
+
+| Table | Description |
+| :--- | :--- |
+| `stocks` | Portfolio universe with thesis & tracking directives |
+| `prices` | Daily corporate-action adjusted price history |
+| `xbrl_filings` | Statutory quarterly & annual exchange filing records |
+| `xbrl_metrics_quarterly` | Deep normalized XBRL balance sheet & P&L metrics |
+| `financial_results` | Consolidated quarterly financial performance |
+| `financial_metrics` | Multi-year annual financial metrics (ROCE, ROE, FCF) |
+| `management_promises` | Tracked management commitments & fulfillment status |
+| `transcript_analysis` | Concall transcript extraction & credibility scoring |
+| `corporate_announcements` | Real-time BSE/NSE corporate actions and LODR filings |
+
+---
+
+## 📄 License & Status
+
+**Status**: FROZEN / PRODUCTION RESEARCH TOOL  
+**Epistemic Classification**: `HISTORICAL_SIMULATION_CERTIFIED`  
+**License**: Private / Proprietary

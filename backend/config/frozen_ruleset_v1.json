@@ -1,0 +1,49 @@
+{
+  "ruleset_name": "MULTIBAGGER_LIVE_FROZEN_V1",
+  "ruleset_version": "1.0.0",
+  "ruleset_frozen_date": "2026-08-22",
+  "author": "Multibagger Live Quantitative Architecture Team",
+  "description": "Deterministic point-in-time thesis evaluation and capital governance ruleset.",
+  "state_machine": {
+    "states": [
+      "NONE",
+      "ADD",
+      "HOLD",
+      "GATE",
+      "KILL",
+      "RE_ACCUMULATE"
+    ],
+    "transitions": [
+      { "from": "NONE", "to": "ADD", "condition": "INITIAL_UNDERWRITING_PASS" },
+      { "from": "NONE", "to": "GATE", "condition": "INITIAL_UNDERWRITING_GATED_HEADWINDS" },
+      { "from": "ADD", "to": "HOLD", "condition": "VALUATION_CEILING_REACHED_OR_MOMENTUM_PLATEAU" },
+      { "from": "ADD", "to": "GATE", "condition": "MARGIN_COMPRESSION_OR_CFO_STRAIN" },
+      { "from": "ADD", "to": "KILL", "condition": "STRUCTURAL_GUIDANCE_COLLAPSE_OR_MARGIN_BREAK" },
+      { "from": "HOLD", "to": "ADD", "condition": "VALUATION_NORMALIZED_AND_GROWTH_REACCELERATED" },
+      { "from": "HOLD", "to": "GATE", "condition": "FUNDAMENTAL_GROWTH_SLOWDOWN" },
+      { "from": "HOLD", "to": "KILL", "condition": "STRUCTURAL_GUIDANCE_COLLAPSE" },
+      { "from": "GATE", "to": "RE_ACCUMULATE", "condition": "AUDITED_TURNAROUND_CONFIRMATION" },
+      { "from": "GATE", "to": "KILL", "condition": "IRREVERSIBLE_STRUCTURAL_BREAK" },
+      { "from": "RE_ACCUMULATE", "to": "ADD", "condition": "SUSTAINED_GROWTH_CONFIRMATION" }
+    ]
+  },
+  "quantitative_thresholds": {
+    "revenue_growth_yoy_minimum_pct": 15.0,
+    "ebitda_margin_minimum_pct": 8.0,
+    "cfo_to_ebitda_minimum_ratio": 0.30,
+    "margin_compression_warning_bps": 300.0,
+    "margin_collapse_kill_bps": 600.0,
+    "consecutive_negative_cfo_quarters_to_gate": 2,
+    "valuation_ceiling_pe_multiple_hold": 55.0,
+    "valuation_ceiling_pe_multiple_gate": 75.0
+  },
+  "execution_policy": {
+    "execution_session": "NEXT_VALID_TRADING_SESSION_OPEN",
+    "cash_return_rate_annual_pct": 0.0,
+    "lookahead_prevention": {
+      "max_evidence_timestamp_allowed": "T_S",
+      "max_price_timestamp_allowed": "T_E",
+      "require_verified_filing_id": true
+    }
+  }
+}

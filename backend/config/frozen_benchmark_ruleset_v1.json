@@ -1,0 +1,22 @@
+{
+  "benchmark_ruleset_version": "1.0.0",
+  "created_at": "2026-08-22T06:05:00.000Z",
+  "description": "Frozen Benchmark Specifications for Multibagger Live Decision Quality Evaluation",
+  "benchmarks": [
+    {
+      "id": "BENCHMARK_1_UNIVERSE_EQUAL_WEIGHT",
+      "name": "Universe Equal-Weight Passive Hold",
+      "description": "Allocates equal capital (₹5 Lakhs) across all 20 universe stocks on their first available trading session and holds passively with zero rebalancing or exits."
+    },
+    {
+      "id": "BENCHMARK_2_SIMPLE_FUNDAMENTAL",
+      "name": "Simple Systematic Fundamental Filter (No AI)",
+      "description": "Systematic mechanical rule: Invests equal weight in universe stocks satisfying revenue_growth_yoy_pct >= 15.0% AND ebitda_margin_pct >= 15.0% AND trailing_pe <= 50.0. Exits to cash if ebitda_margin < 10.0% or revenue_growth < 0%."
+    },
+    {
+      "id": "BENCHMARK_3_QUARTERLY_REBALANCED",
+      "name": "Quarterly Rebalanced Equal-Weight Universe",
+      "description": "Equal-weights all active universe stocks at the start of each calendar quarter, resetting portfolio weights back to 5.0% per stock."
+    }
+  ]
+}
