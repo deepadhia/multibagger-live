@@ -60,19 +60,26 @@ async function sendHeartbeat() {
 /**
  * Main Scanning Orchestrator
  */
-export async function scan({ isDryRun = false, runUrl = null } = {}) {
+export async function scan({ isDryRun = false, runUrl = null, targetTicker = null } = {}) {
   writeLog("SCANNER", `🟢 Starting Corporate Announcement Scan... ${isDryRun ? "[DRY RUN]" : "[LIVE DAEMON]"}`);
   const startTime = Date.now();
 
   // 0. System Cleanup & Heartbeat
   await resetStuckPending();
-  await sendHeartbeat();
+  if (!targetTicker) {
+    await sendHeartbeat();
+  }
 
   // 1. Get portfolio & watchlist stocks dynamically from DB
-  const { rows: stocks } = await pool.query(
-    "SELECT id, ticker, COALESCE(nse_symbol, ticker) AS nse_symbol, bse_scrip_code, investment_thesis, category FROM stocks WHERE category IN ('Core', 'Watchlist') OR category IS NULL ORDER BY ticker"
-  );
-  writeLog("SCANNER", `🔍 Monitoring ${stocks.length} Core & Watchlist stocks across NSE & BSE`);
+  let query = "SELECT id, ticker, COALESCE(nse_symbol, ticker) AS nse_symbol, bse_scrip_code, investment_thesis, category FROM stocks WHERE (category IN ('Core', 'Watchlist') OR category IS NULL)";
+  const params = [];
+  if (targetTicker) {
+    query += " AND UPPER(TRIM(ticker)) = $1";
+    params.push(targetTicker.toUpperCase().trim());
+  }
+  query += " ORDER BY ticker";
+  const { rows: stocks } = await pool.query(query, params);
+  writeLog("SCANNER", `🔍 Monitoring ${stocks.length} stock(s) across NSE & BSE${targetTicker ? ` (Filtered: ${targetTicker})` : ''}`);
 
   // ── Run-level stats (for end-of-run summary) ──
   let alertsSent        = 0;

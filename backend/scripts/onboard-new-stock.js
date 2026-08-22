@@ -104,7 +104,9 @@ async function runPriceBackfill(stock, dryRun) {
   try {
     const result = await fetchAndStorePrice({ ticker: stock.ticker, backfill: true });
     if (result.success) {
-      logStep(1, 'OK', `Price history backfilled — latest: ₹${result.price} on ${result.date} (${result.inserted ?? 'N/A'} rows inserted)`);
+      const priceText = result.price ? ` — latest: ₹${result.price} on ${result.date}` : '';
+      const insertText = result.inserted !== undefined ? ` (${result.inserted} rows inserted)` : '';
+      logStep(1, 'OK', `Price history synced${priceText}${insertText}`);
     } else {
       logStep(1, 'WARN', `Price backfill partial: ${result.error || result.message || 'unknown'}`);
     }
@@ -216,9 +218,6 @@ async function runAnnouncementScan(stock, dryRun) {
     return;
   }
 
-  // The announcement scanner is designed as a full-portfolio scan.
-  // For single-stock onboarding, we read how many new announcements were
-  // inserted into corporate_announcements for this stock from the DB before/after.
   try {
     const { rows: before } = await pool.query(
       `SELECT COUNT(*) AS cnt FROM corporate_announcements WHERE ticker = $1`,
@@ -226,9 +225,9 @@ async function runAnnouncementScan(stock, dryRun) {
     );
     const countBefore = parseInt(before[0].cnt, 10);
 
-    // Import the scan function dynamically (avoids running the full scanner heartbeat)
+    // Import the scan function dynamically and pass targetTicker
     const { scan } = await import('./scan-announcements.js');
-    await scan({ isDryRun: false });
+    await scan({ isDryRun: false, targetTicker: stock.ticker });
 
     const { rows: after } = await pool.query(
       `SELECT COUNT(*) AS cnt FROM corporate_announcements WHERE ticker = $1`,
