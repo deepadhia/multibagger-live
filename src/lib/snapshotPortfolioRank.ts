@@ -2,9 +2,16 @@ import { sortSnapshotsByQuarterDesc } from "@/lib/quarterSort";
 
 const THESIS_TIER: Record<string, number> = {
   strengthening: 4,
+  accelerating: 4,
+  strong: 4,
   stable: 3,
+  intact: 3,
+  on_track: 3,
   weakening: 2,
+  under_review: 2,
+  deteriorating: 2,
   broken: 1,
+  failed: 1,
 };
 
 export type SnapshotRowLike = {
@@ -12,10 +19,23 @@ export type SnapshotRowLike = {
   quarter?: string | null;
   thesis_status?: string | null;
   confidence_score?: number | null;
+  thesis_score?: number | null;
+  valuation_score?: number | null;
+  conviction_score?: number | null;
   portfolio_rank?: number | null;
   portfolio_cohort_size?: number | null;
+  metrics?: Record<string, unknown> | null;
   raw_ai_output?: unknown;
 };
+
+function parseNumeric(valStr: unknown): number | null {
+  if (valStr == null) return null;
+  if (typeof valStr === "number") return valStr;
+  if (typeof valStr !== "string") return null;
+  const cleaned = valStr.replace(/,/g, "").replace(/%/g, "");
+  const match = cleaned.match(/(-?\d+(?:\.\d+)?)/);
+  return match ? parseFloat(match[1]) : null;
+}
 
 function parseRawJson(raw: unknown): Record<string, unknown> | null {
   if (raw == null) return null;
@@ -51,6 +71,9 @@ export function confidenceFromSnapshot(snap: SnapshotRowLike): number {
   if (snap.confidence_score != null && Number.isFinite(Number(snap.confidence_score))) {
     return Math.max(0, Math.min(100, Number(snap.confidence_score)));
   }
+  if (snap.thesis_score != null && Number.isFinite(Number(snap.thesis_score))) {
+    return Math.max(0, Math.min(100, Number(snap.thesis_score)));
+  }
   const raw = parseRawJson(snap.raw_ai_output);
   const block = raw?.snapshot as Record<string, unknown> | undefined;
   const c = block?.confidence_score;
@@ -59,7 +82,10 @@ export function confidenceFromSnapshot(snap: SnapshotRowLike): number {
     const n = parseFloat(c);
     if (Number.isFinite(n)) return Math.max(0, Math.min(100, n));
   }
-  return 0;
+  if (raw && typeof raw.conviction_score === "number" && Number.isFinite(raw.conviction_score)) {
+    return Math.max(0, Math.min(100, raw.conviction_score));
+  }
+  return 80;
 }
 
 /**
@@ -71,34 +97,86 @@ export function snapshotThesisSortScore(snap: SnapshotRowLike): number {
 }
 
 const TRAJECTORY_WINDOW = 5;
-const TRAJECTORY_BONUS_MAX = 900;
+const TRAJECTORY_BONUS_MAX = 600;
 const TRAJECTORY_PENALTY_MAX = 500;
+
+function parseSnapshotMetrics(snap: SnapshotRowLike): Record<string, any> {
+  const m = snap.metrics;
+  if (m && typeof m === "object") return m;
+  const raw = parseRawJson(snap.raw_ai_output);
+  const block = raw?.snapshot as Record<string, unknown> | undefined;
+  return (block?.metrics as Record<string, any>) || (raw?.metrics as Record<string, any>) || {};
+}
 
 /**
  * Bonus for thesis trajectory over the last few fiscal quarters (oldest → newest).
- * Rewards non-decreasing tiers and net upgrades; penalizes downgrades.
+ * Anchored in verifiable accounting numbers (revenue acceleration, PAT growth, margin discipline) and tier shifts.
  */
 export function trajectoryBonusFromSnapshots(snapshots: SnapshotRowLike[] | null | undefined): number {
   const desc = sortSnapshotsByQuarterDesc(snapshots || []);
   if (desc.length < 2) return 0;
   const chrono = desc.slice(0, TRAJECTORY_WINDOW).reverse();
+
+  let revBonus = 0;
+  let patBonus = 0;
+  let marginBonus = 0;
+  let tierShiftBonus = 0;
+  let streakBonus = 0;
+
   const tiers = chrono.map(thesisTier);
-  let raw = 0;
+  const metricsList = chrono.map(parseSnapshotMetrics);
+  const revGrowths = metricsList.map(m => parseNumeric(m.revenue_growth?.value));
+  const patGrowths = metricsList.map(m => parseNumeric(m.pat_growth?.value));
+  const opms = metricsList.map(m => parseNumeric(m.opm?.value));
+
+  // 1. Revenue Acceleration
+  for (let i = 0; i < revGrowths.length - 1; i++) {
+    const cur = revGrowths[i];
+    const nxt = revGrowths[i + 1];
+    if (cur !== null && nxt !== null) {
+      if (nxt > cur) revBonus += 25;
+      else if (nxt < cur - 5.0) revBonus -= 20;
+    }
+  }
+  revBonus = Math.max(-60, Math.min(90, revBonus));
+
+  // 2. High-Quality PAT Compounding
+  for (let i = 0; i < patGrowths.length; i++) {
+    const p = patGrowths[i];
+    if (p !== null) {
+      if (p >= 20.0) patBonus += 25;
+      else if (p >= 10.0) patBonus += 15;
+      else if (p < 0.0) patBonus -= 20;
+    }
+  }
+  patBonus = Math.max(-40, Math.min(100, patBonus));
+
+  // 3. Margin Discipline
+  for (let i = 0; i < opms.length; i++) {
+    const m = opms[i];
+    if (m !== null && m >= 18.0) marginBonus += 15;
+  }
+  marginBonus = Math.max(0, Math.min(60, marginBonus));
+
+  // 4. Tier Shift (Upgrades vs Downgrades)
   for (let i = 0; i < tiers.length - 1; i++) {
     const d = tiers[i + 1] - tiers[i];
-    if (d > 0) raw += 160 * d;
-    else if (d < 0) raw -= 200 * Math.abs(d);
-    else if (tiers[i + 1] >= 3) raw += 35;
+    if (d > 0) tierShiftBonus += 120 * d;
+    else if (d < 0) tierShiftBonus -= 200 * Math.abs(d);
   }
+
+  // 5. Zero-Deterioration Streak (Capped at 100)
   let nonDec = true;
   for (let i = 0; i < tiers.length - 1; i++) {
     if (tiers[i + 1] < tiers[i]) nonDec = false;
   }
   if (nonDec) {
-    if (tiers.length >= 4) raw += 220;
-    else if (tiers.length >= 3) raw += 140;
+    if (tiers.length >= 4) streakBonus = 100;
+    else if (tiers.length >= 3) streakBonus = 60;
   }
-  return Math.max(-TRAJECTORY_PENALTY_MAX, Math.min(TRAJECTORY_BONUS_MAX, raw));
+
+  const rawTotal = revBonus + patBonus + marginBonus + tierShiftBonus + streakBonus;
+  return Math.max(-TRAJECTORY_PENALTY_MAX, Math.min(TRAJECTORY_BONUS_MAX, rawTotal));
 }
 
 /** Listing sort: latest quarter thesis+confidence plus multi-quarter improvement runway. */

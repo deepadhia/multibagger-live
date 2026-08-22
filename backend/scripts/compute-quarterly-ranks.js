@@ -64,13 +64,22 @@ function compareQuarterDesc(a, b) {
   return compareQuarterAsc(b, a);
 }
 
-function thesisTierFromRow(row) {
+function parseNumeric(valStr) {
+  if (valStr == null) return null;
+  if (typeof valStr === 'number') return valStr;
+  if (typeof valStr !== 'string') return null;
+  const cleaned = valStr.replace(/,/g, '').replace(/%/g, '');
+  const match = cleaned.match(/(-?\d+(?:\.\d+)?)/);
+  return match ? parseFloat(match[1]) : null;
+}
+
+export function thesisTierFromRow(row) {
   const obj = parseRaw(row.raw_ai_output);
   const thesis = (row.thesis_status || obj?.snapshot?.thesis_status || "").toLowerCase().trim();
-  if (thesis === "strengthening") return 4;
-  if (thesis === "stable") return 3;
-  if (thesis === "weakening") return 2;
-  if (thesis === "broken") return 1;
+  if (thesis === "strengthening" || thesis === "accelerating" || thesis === "strong") return 4;
+  if (thesis === "stable" || thesis === "intact" || thesis === "on_track") return 3;
+  if (thesis === "weakening" || thesis === "under_review" || thesis === "deteriorating") return 2;
+  if (thesis === "broken" || thesis === "failed") return 1;
   return 0;
 }
 
@@ -87,10 +96,14 @@ function parseRaw(raw) {
   return null;
 }
 
-function confidenceFromRow(row) {
+export function confidenceFromRow(row) {
   const col = row.confidence_score;
   if (col != null && Number.isFinite(Number(col))) {
     return Math.max(0, Math.min(100, Number(col)));
+  }
+  const thCol = row.thesis_score;
+  if (thCol != null && Number.isFinite(Number(thCol))) {
+    return Math.max(0, Math.min(100, Number(thCol)));
   }
   const obj = parseRaw(row.raw_ai_output);
   const snap = obj?.snapshot;
@@ -104,15 +117,15 @@ function confidenceFromRow(row) {
   if (obj && typeof obj.conviction_score === "number" && Number.isFinite(obj.conviction_score)) {
     return Math.max(0, Math.min(100, obj.conviction_score));
   }
-  return 0;
+  return 80;
 }
 
-function rankScoreFromRow(row) {
+export function rankScoreFromRow(row) {
   return thesisTierFromRow(row) * 1000 + confidenceFromRow(row);
 }
 
 const TRAJECTORY_WINDOW = 5;
-const TRAJECTORY_BONUS_MAX = 900;
+const TRAJECTORY_BONUS_MAX = 600;
 const TRAJECTORY_PENALTY_MAX = 500;
 
 function dedupeSnapshotsPerQuarter(rows) {
@@ -140,27 +153,84 @@ function sortSnapshotsByQuarterDesc(rows) {
   });
 }
 
-function trajectoryBonusFromRows(rows) {
+function parseRowMetrics(row) {
+  const m = row.metrics;
+  if (!m) {
+    const raw = parseRaw(row.raw_ai_output);
+    return raw?.snapshot?.metrics || raw?.metrics || {};
+  }
+  if (typeof m === 'object') return m;
+  if (typeof m === 'string') {
+    try { return JSON.parse(m); } catch { return {}; }
+  }
+  return {};
+}
+
+export function trajectoryBonusFromRows(rows) {
   const desc = sortSnapshotsByQuarterDesc(rows);
   if (desc.length < 2) return 0;
   const chrono = desc.slice(0, TRAJECTORY_WINDOW).reverse();
+
+  let revBonus = 0;
+  let patBonus = 0;
+  let marginBonus = 0;
+  let tierShiftBonus = 0;
+  let streakBonus = 0;
+
   const tiers = chrono.map(thesisTierFromRow);
-  let raw = 0;
+  const metricsList = chrono.map(parseRowMetrics);
+  const revGrowths = metricsList.map(m => parseNumeric(m.revenue_growth?.value));
+  const patGrowths = metricsList.map(m => parseNumeric(m.pat_growth?.value));
+  const opms = metricsList.map(m => parseNumeric(m.opm?.value));
+
+  // 1. Revenue Acceleration
+  for (let i = 0; i < revGrowths.length - 1; i++) {
+    const cur = revGrowths[i];
+    const nxt = revGrowths[i + 1];
+    if (cur !== null && nxt !== null) {
+      if (nxt > cur) revBonus += 25;
+      else if (nxt < cur - 5.0) revBonus -= 20;
+    }
+  }
+  revBonus = Math.max(-60, Math.min(90, revBonus));
+
+  // 2. High-Quality PAT Compounding
+  for (let i = 0; i < patGrowths.length; i++) {
+    const p = patGrowths[i];
+    if (p !== null) {
+      if (p >= 20.0) patBonus += 25;
+      else if (p >= 10.0) patBonus += 15;
+      else if (p < 0.0) patBonus -= 20;
+    }
+  }
+  patBonus = Math.max(-40, Math.min(100, patBonus));
+
+  // 3. Margin Discipline
+  for (let i = 0; i < opms.length; i++) {
+    const m = opms[i];
+    if (m !== null && m >= 18.0) marginBonus += 15;
+  }
+  marginBonus = Math.max(0, Math.min(60, marginBonus));
+
+  // 4. Tier Shift (Upgrades vs Downgrades)
   for (let i = 0; i < tiers.length - 1; i++) {
     const d = tiers[i + 1] - tiers[i];
-    if (d > 0) raw += 160 * d;
-    else if (d < 0) raw -= 200 * Math.abs(d);
-    else if (tiers[i + 1] >= 3) raw += 35;
+    if (d > 0) tierShiftBonus += 120 * d;
+    else if (d < 0) tierShiftBonus -= 200 * Math.abs(d);
   }
+
+  // 5. Zero-Deterioration Streak (Capped at 100)
   let nonDec = true;
   for (let i = 0; i < tiers.length - 1; i++) {
     if (tiers[i + 1] < tiers[i]) nonDec = false;
   }
   if (nonDec) {
-    if (tiers.length >= 4) raw += 220;
-    else if (tiers.length >= 3) raw += 140;
+    if (tiers.length >= 4) streakBonus = 100;
+    else if (tiers.length >= 3) streakBonus = 60;
   }
-  return Math.max(-TRAJECTORY_PENALTY_MAX, Math.min(TRAJECTORY_BONUS_MAX, raw));
+
+  const rawTotal = revBonus + patBonus + marginBonus + tierShiftBonus + streakBonus;
+  return Math.max(-TRAJECTORY_PENALTY_MAX, Math.min(TRAJECTORY_BONUS_MAX, rawTotal));
 }
 
 function buildPortfolioListRows(dbRows) {
