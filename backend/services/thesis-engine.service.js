@@ -274,3 +274,10 @@ export async function persistThesisStateHistory(assessment, pool) {
 
   return savedState;
 }
+
+export {
+  classifyThesisStateV2,
+  reconcileSnapshotThesisState,
+  THESIS_STATES,
+  THESIS_RELEVANCE
+} from './thesis-state-engine.service.js';

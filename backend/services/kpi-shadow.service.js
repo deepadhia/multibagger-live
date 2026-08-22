@@ -56,6 +56,7 @@ export function comparePeriodsAsc(a, b) {
   if (pa.fy !== pb.fy) return pa.fy - pb.fy;
   if (pa.q !== pb.q) return pa.q - pb.q;
   if (pa.type !== pb.type) return pa.type === 'ANNUAL' ? -1 : 1;
+  if (pa.fy > 0 && pa.fy === pb.fy && pa.q === pb.q && pa.type === pb.type) return 0;
   return pa.raw.localeCompare(pb.raw);
 }
 

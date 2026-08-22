@@ -241,43 +241,51 @@ export async function backfillThesisKpis() {
   let updated = 0;
   let unavailableCount = 0;
 
-  for (const obs of HISTORICAL_OBSERVATIONS) {
-    const isUnavailable = obs.status === 'UNAVAILABLE' || obs.val === null;
-    if (isUnavailable) unavailableCount++;
-
-    const res = await pool.query(
-      `INSERT INTO thesis_kpi_observations
-        (company, metric_id, period_type, period, reported_value, unit,
-         source_type, source_document, source_page, evidence_text,
-         availability_status, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-       ON CONFLICT (company, metric_id, period_type, period) DO UPDATE SET
-        reported_value = EXCLUDED.reported_value,
-        unit = EXCLUDED.unit,
-        source_type = EXCLUDED.source_type,
-        source_document = EXCLUDED.source_document,
-        source_page = EXCLUDED.source_page,
-        evidence_text = EXCLUDED.evidence_text,
-        availability_status = EXCLUDED.availability_status,
-        updated_at = NOW()
-       RETURNING (xmax = 0) AS is_insert`,
-      [
-        obs.company,
-        obs.metricId,
-        obs.periodType || 'QUARTERLY',
-        obs.period,
-        isUnavailable ? null : obs.val,
-        obs.unit || null,
-        obs.quality === 'B' ? 'INVESTOR_PRESENTATION' : (obs.quality === 'C' ? 'CONCALL_TRANSCRIPT' : 'AUDITED_FILING'),
-        obs.doc || null,
-        obs.page || null,
-        obs.text || null,
-        isUnavailable ? 'UNAVAILABLE' : 'AVAILABLE'
-      ]
+  const CHUNK_SIZE = 25;
+  for (let i = 0; i < HISTORICAL_OBSERVATIONS.length; i += CHUNK_SIZE) {
+    const chunk = HISTORICAL_OBSERVATIONS.slice(i, i + CHUNK_SIZE);
+    const results = await Promise.all(
+      chunk.map(async (obs) => {
+        const isUnavailable = obs.status === 'UNAVAILABLE' || obs.val === null;
+        const res = await pool.query(
+          `INSERT INTO thesis_kpi_observations
+            (company, metric_id, period_type, period, reported_value, unit,
+             source_type, source_document, source_page, evidence_text, availability_status, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+           ON CONFLICT (company, metric_id, period_type, period)
+           DO UPDATE SET
+             reported_value = EXCLUDED.reported_value,
+             unit = EXCLUDED.unit,
+             source_type = EXCLUDED.source_type,
+             source_document = EXCLUDED.source_document,
+             source_page = EXCLUDED.source_page,
+             evidence_text = EXCLUDED.evidence_text,
+             availability_status = EXCLUDED.availability_status,
+             updated_at = NOW()
+           RETURNING (xmax = 0) AS is_insert;`,
+          [
+            obs.company,
+            obs.metricId,
+            obs.periodType || 'QUARTERLY',
+            obs.period,
+            isUnavailable ? null : obs.val,
+            obs.unit || null,
+            obs.quality === 'B' ? 'INVESTOR_PRESENTATION' : (obs.quality === 'C' ? 'CONCALL_TRANSCRIPT' : 'AUDITED_FILING'),
+            obs.doc || null,
+            obs.page || null,
+            obs.text || null,
+            isUnavailable ? 'UNAVAILABLE' : 'AVAILABLE'
+          ]
+        );
+        return { isInsert: res.rows[0]?.is_insert, isUnavailable };
+      })
     );
 
-    if (res.rows[0]?.is_insert) inserted++;
-    else updated++;
+    for (const r of results) {
+      if (r.isUnavailable) unavailableCount++;
+      if (r.isInsert) inserted++;
+      else updated++;
+    }
   }
 
   console.log(`✅ Backfilled Observations: ${inserted} inserted, ${updated} updated, ${unavailableCount} explicitly UNAVAILABLE.\n`);

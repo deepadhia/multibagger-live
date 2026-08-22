@@ -108,29 +108,46 @@ npm run server
 npm run server:dev
 ```
 
-### 2. Standalone System Crontab
-If running via Linux system crontab on the server:
+### 2. Standalone System Crontab (Server Crons)
+If running via Linux system crontab on the production server (`crontab -e`):
+
 ```bash
-# Add to crontab (crontab -e) to run at 23:30 IST / 18:00 UTC:
+# 🌙 1. Nightly Price Refresh & Ingestion Cron (Every night at 23:30 IST / 18:00 UTC)
 30 23 * * * cd /path/to/multibagger-live && npm run reconcile:nightly >> /var/log/reconciliation.log 2>&1
+
+# 🏛️ 2. Bi-Monthly / Quarterly Thesis Watchdog Review (Runs on the 15th of post-earnings months: Feb, May, Aug, Nov at 02:00 IST)
+0 2 15 2,5,8,11 * cd /path/to/multibagger-live && npm run watchdog:quarterly >> /var/log/watchdog_quarterly.log 2>&1
+
+# ⏱️ 3. Alternative: Bi-Monthly Schedule (Runs on the 1st of every 2nd month at 02:00 IST)
+0 2 1 */2 * cd /path/to/multibagger-live && npm run watchdog:quarterly >> /var/log/watchdog_quarterly.log 2>&1
 ```
 
 ### 3. What the Server Executes Every Night at 23:30 IST
-1. **Daily Price Refresh**: Refreshes closing prices for all stocks in PostgreSQL.
+1. **Daily Price Refresh**: Refreshes closing prices and computes trailing 365-day Rolling 52W Highs/Lows in PostgreSQL.
 2. **Asynchronous Gap Reconciler**: Ingests concall transcripts & presentations filed days after board results.
 3. **Announcement & AGM Scanner**: Ingests LODR filings across NSE + BSE (`Analyst / Investor Meet`, `Company Update`, `Result`, etc.).
 4. **Multi-Year Growth Catalyst Audit**: Identifies major order wins and 2-year revenue roadmaps.
 5. **Idempotent Morning Digest**: Deduplicates alerts using SHA-256 hashes; sends a clean morning digest to Telegram with zero repetitions.
 
+### 4. What the Server Executes During Quarterly/Bi-Monthly Reviews
+1. **Driver Contract Evaluation**: Re-evaluates 3–6 explicit drivers per stock against freshly filed quarterly financials.
+2. **Falsification Trigger Testing**: Tests live metrics against explicit threshold kill-switches (e.g. margin floors, volume milestones).
+3. **Layer 4 Capital Allocation Matrix**: Filters universe by 52W high consolidation depth, unit margin quality (>10% EBITDA), and debt trends.
+4. **Automated Regression Test Run**: Executes the 4-layer invariant test suite (Thesis State, Contracts, Replay, Drawdown Validation) to verify 100% compliance.
+
 ---
 
 ## 📊 Live Master Watchdog Report Generation
 
-To generate the comprehensive, skeptical 20-stock quarterly thesis report at any time:
+To generate the comprehensive 18-stock quarterly thesis review & capital allocation matrix at any time:
 ```bash
-node scripts/generate_quarterly_thesis_watchdog.js
+npm run watchdog:quarterly
 ```
-The report is saved to [`reports/research_quality/QUARTERLY_THESIS_WATCHDOG_REPORT.md`](file:///f:/Personal%20Projects/multibagger-live/reports/research_quality/QUARTERLY_THESIS_WATCHDOG_REPORT.md).
+This automatically updates:
+- [`reports/thesis_board/CAPITAL_ALLOCATION_ACTIONABILITY_FRAMEWORK_18_STOCKS.md`](file:///f:/Personal%20Projects/multibagger-live/reports/thesis_board/CAPITAL_ALLOCATION_ACTIONABILITY_FRAMEWORK_18_STOCKS.md)
+- [`reports/thesis_board/FALSIFIABLE_THESIS_TRACKING_FRAMEWORK.md`](file:///f:/Personal%20Projects/multibagger-live/reports/thesis_board/FALSIFIABLE_THESIS_TRACKING_FRAMEWORK.md)
+- [`reports/thesis_board/DRIVER_LEVEL_THESIS_CONTRACTS_18_STOCKS.md`](file:///f:/Personal%20Projects/multibagger-live/reports/thesis_board/DRIVER_LEVEL_THESIS_CONTRACTS_18_STOCKS.md)
+- [`reports/thesis_board/capital-allocation-actionability-framework.json`](file:///f:/Personal%20Projects/multibagger-live/reports/thesis_board/capital-allocation-actionability-framework.json)
 
 ---
 

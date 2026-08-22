@@ -6,6 +6,7 @@
  */
 
 import { pool } from "../db/pool.js";
+import { compareFiscalQuartersDesc } from "../utils/fiscal-quarter.js";
 import { extractTextFromPdfUrl } from "../services/announcement.service.js";
 import { sendTelegramMessage } from "../services/telegram.service.js";
 import { NVIDIA_API_KEY } from "../config/env.js";
@@ -781,13 +782,13 @@ export async function generateInstitutionalSyntheses(ticker, force = false) {
       [ticker]
     );
 
-    const { rows: snapshots } = await pool.query(
+    const { rows: rawSnapshots } = await pool.query(
       `SELECT quarter, thesis_status, thesis_momentum, confidence_score, final_action, summary, metrics, red_flags, dodged_questions
        FROM quarterly_snapshots
-       WHERE stock_id = $1
-       ORDER BY quarter DESC`,
+       WHERE stock_id = $1`,
       [stock.id]
     );
+    const snapshots = [...rawSnapshots].sort((a, b) => compareFiscalQuartersDesc(a.quarter, b.quarter));
 
     const { rows: interQuarterEvents } = await pool.query(
       `SELECT event_date, event_type, title, value_in_cr, counterparty, description, bse_filing_url

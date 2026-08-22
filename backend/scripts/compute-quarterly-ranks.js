@@ -32,37 +32,23 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-function parseQuarterLabel(quarter) {
-  if (!quarter || typeof quarter !== "string") return null;
-  const s = quarter.trim();
-  let m = s.match(/^Q(\d)_FY(\d{2}|\d{4})$/i);
-  if (m) {
-    let fy = parseInt(m[2], 10);
-    if (m[2].length === 4) fy = fy % 100;
-    const q = parseInt(m[1], 10);
-    if (q >= 1 && q <= 4 && fy >= 0 && fy <= 99) return { fy, q, raw: s };
-  }
-  m = s.match(/^FY(\d{2}|\d{4})-Q(\d)$/i);
-  if (m) {
-    let fy = parseInt(m[1], 10);
-    if (m[1].length === 4) fy = fy % 100;
-    const q = parseInt(m[2], 10);
-    if (q >= 1 && q <= 4 && fy >= 0 && fy <= 99) return { fy, q, raw: s };
-  }
-  return { fy: 0, q: 0, raw: s };
-}
+import {
+  parseFiscalQuarter,
+  compareFiscalQuarters,
+  compareFiscalQuartersDesc,
+  sortFiscalQuarters,
+  latestQuarter
+} from "../utils/fiscal-quarter.util.js";
 
-function compareQuarterAsc(a, b) {
-  const pa = parseQuarterLabel(a);
-  const pb = parseQuarterLabel(b);
-  if (pa.fy !== pb.fy) return pa.fy - pb.fy;
-  if (pa.q !== pb.q) return pa.q - pb.q;
-  return String(a).localeCompare(String(b));
-}
+const parseQuarterLabel = parseFiscalQuarter;
+const compareQuarterAsc = compareFiscalQuarters;
+const compareQuarterDesc = compareFiscalQuartersDesc;
 
-function compareQuarterDesc(a, b) {
-  return compareQuarterAsc(b, a);
-}
+export {
+  parseQuarterLabel,
+  compareQuarterAsc,
+  compareQuarterDesc
+};
 
 function parseNumeric(valStr) {
   if (valStr == null) return null;
@@ -233,7 +219,7 @@ export function trajectoryBonusFromRows(rows) {
   return Math.max(-TRAJECTORY_PENALTY_MAX, Math.min(TRAJECTORY_BONUS_MAX, rawTotal));
 }
 
-function buildPortfolioListRows(dbRows) {
+export function buildPortfolioListRows(dbRows) {
   const canonical = dedupeSnapshotsPerQuarter(dbRows);
   const byStock = new Map();
   for (const r of canonical) {
@@ -261,7 +247,7 @@ function buildPortfolioListRows(dbRows) {
 }
 
 /** Competition ranking: 1,2,2,4 for descending scores. */
-function assignRanks(rows) {
+export function assignRanks(rows) {
   const sorted = [...rows].sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     return String(a.ticker).localeCompare(String(b.ticker));
@@ -487,7 +473,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv[1]?.endsWith('compute-quarterly-ranks.js')) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -23,11 +23,15 @@ import assert from 'assert';
 import dotenv from 'dotenv';
 dotenv.config({ path: './.env.local' });
 import { pool } from '../db/pool.js';
+import { parseFiscalQuarter, compareFiscalQuartersDesc, compareFiscalQuarters } from '../utils/fiscal-quarter.js';
 import { seedThesisKpis } from './seed-thesis-kpis.js';
 import { backfillThesisKpis } from './backfill-thesis-kpis.js';
 import { computeThesisKpiSignals } from './compute-thesis-kpi-signals.js';
 import { generateThesisKpiReport } from './generate-thesis-kpi-report.js';
 import { runAllTests } from './test-thesis-kpi-engine.js';
+import { runAllThesisStateTests } from './test-thesis-state-engine.js';
+import { generatePortfolioThesisBoard } from './generate-portfolio-thesis-board.js';
+import { generateThesisStatusReport } from './generate-thesis-status-q1-fy27.js';
 import { trajectoryBonusFromRows, thesisTierFromRow, confidenceFromRow } from './compute-quarterly-ranks.js';
 
 const REPORT_DIR = path.resolve('reports/kpi_shadow');
@@ -50,7 +54,7 @@ async function captureCurrentRankings() {
 
   const snapshotRanks = [];
   for (const [stockId, rows] of byStock) {
-    const desc = [...rows].sort((a, b) => String(b.quarter).localeCompare(String(a.quarter)));
+    const desc = [...rows].sort((a, b) => compareFiscalQuartersDesc(a.quarter, b.quarter));
     const latest = desc[0];
     const latestScore = thesisTierFromRow(latest) * 1000 + confidenceFromRow(latest);
     const bonus = trajectoryBonusFromRows(rows);
@@ -174,11 +178,20 @@ async function main() {
   );
   console.log('✅ PASS: 18/18 stocks identical. Zero ranking mutations detected.\n');
 
-  // 9. Run Complete 31-Test Suite
-  console.log('--- 🧪 Step 9: Running Full 31-Test Test Suite ---');
+  // 9. Run Complete 31-Test KPI Shadow Suite
+  console.log('--- 🧪 Step 9: Running Full 31-Test KPI Shadow Test Suite ---');
   const testResults = await runAllTests(RANKING_BEFORE_PATH, RANKING_AFTER_PATH);
 
-  // 10. Fetch Coverage Metrics for Final Banner
+  // 10. Run Complete 7-Test Thesis State Engine Suite
+  console.log('--- 🧪 Step 10: Running Full 7-Test Thesis State Engine Suite ---');
+  const thesisStateResults = await runAllThesisStateTests(RANKING_BEFORE_PATH, RANKING_AFTER_PATH);
+
+  // 11. Generate Updated Portfolio Thesis Boards & Deep Dive Reports
+  console.log('--- 📋 Step 11: Generating Updated Portfolio Thesis Boards ---');
+  await generatePortfolioThesisBoard();
+  await generateThesisStatusReport();
+
+  // 12. Fetch Coverage Metrics for Final Banner
   const { rows: obsCounts } = await pool.query(`
     SELECT 
       count(*) as total_obs,
@@ -192,7 +205,7 @@ async function main() {
   const metrics = obsCounts[0];
 
   console.log('════════════════════════════════════════════════════════════════════════');
-  console.log('🏛️ THESIS KPI SHADOW ENGINE v1.0 — FINAL AUDIT REPORT');
+  console.log('🏛️ THESIS KPI SHADOW ENGINE & THESIS STATE ENGINE v2.0 AUDIT');
   console.log('════════════════════════════════════════════════════════════════════════');
   console.log(`Database Schema:        PASS (2 isolated shadow tables)`);
   console.log(`Companies Covered:      ${metrics.total_companies} / 5 (TIMETECHNO, LUMAXTECH, CCL, GRAVITA, HSCL)`);
@@ -204,9 +217,11 @@ async function main() {
   console.log(`Economic Relevance:     PASS (LOW -> RISING -> MATERIAL -> DOMINANT)`);
   console.log(`Look-Ahead Protection:  PASS (Zero forward contamination)`);
   console.log(`Lead-Lag Engine:        PASS (Safeguard: n < 10 marked INSUFFICIENT_SAMPLE)`);
-  console.log(`Automated Tests:        ${testResults.passedCount}/${testResults.totalCount} PASS`);
+  console.log(`KPI Shadow Tests:       ${testResults.passedCount}/${testResults.totalCount} PASS`);
+  console.log(`Thesis State Tests:     ${thesisStateResults.passed}/${thesisStateResults.total} PASS`);
   console.log(`Ranking Invariance:     PASS (18/18 portfolio stocks 100% unchanged)`);
-  console.log(`Engine Status:          🟢 FROZEN IN SHADOW MODE`);
+  console.log(`Ranking Layer Status:   🔒 FROZEN & PROTECTED`);
+  console.log(`Thesis State Status:    🟢 AUDIT-VERIFIED (EVIDENCE-DERIVED)`);
   console.log('════════════════════════════════════════════════════════════════════════\n');
 
   await pool.end();

@@ -19,6 +19,7 @@ import { pool } from "../db/pool.js";
 import { deleteDriveFile, isDriveConfigured, uploadAnnouncementsToDrive } from "./drive.service.js";
 import { logger } from "../utils/logger.js";
 import { fetchAndStoreXbrlMetrics } from "./xbrl.service.js";
+import { compareFiscalQuarters } from "../utils/fiscal-quarter.js";
 
 const LOG = "Transcripts";
 const WINDOW_TO_QUARTERS = { "6m": 2, "1y": 4, "2y": 8, "3y": 12, "3q": 3 };
@@ -289,7 +290,7 @@ export async function listDownloadedFilesForSymbol(symbol) {
   }
 
   files.sort((a, b) => {
-    const q = a.quarter.localeCompare(b.quarter);
+    const q = compareFiscalQuarters(a.quarter, b.quarter);
     if (q !== 0) return q;
     return (a.category || "").localeCompare(b.category || "");
   });
@@ -339,7 +340,7 @@ export async function listDownloadedFilesForSymbol(symbol) {
     });
   }
   files.sort((a, b) => {
-    const q = a.quarter.localeCompare(b.quarter);
+    const q = compareFiscalQuarters(a.quarter, b.quarter);
     if (q !== 0) return q;
     return (a.category || "").localeCompare(b.category || "");
   });

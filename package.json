@@ -23,6 +23,7 @@
     "db:seed:admin": "node backend/seed-admin.js",
     "ranks:quarterly": "node --env-file=.env.local backend/scripts/compute-quarterly-ranks.js",
     "ranks:quarterly:apply": "node --env-file=.env.local backend/scripts/compute-quarterly-ranks.js --apply",
+    "watchdog:quarterly": "node --env-file=.env.local backend/scripts/run-quarterly-watchdog-review.js",
     "onboard:stock": "node --env-file=.env.local backend/scripts/onboard-new-stock.js"
   },
   "dependencies": {

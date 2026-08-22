@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: './.env.local' });
 import { pool } from '../db/pool.js';
+import { compareFiscalQuarters } from '../utils/fiscal-quarter.js';
 
 /**
  * Helper to parse numbers from strings ("23.1%", "₹10,000 Cr", "14.5%").
@@ -45,10 +46,11 @@ export async function detectNegativeVariances(ticker, dryRun = true) {
   if (stockRows.length === 0) return [];
   const stock = stockRows[0];
 
-  const { rows: snapshots } = await pool.query(
-    `SELECT quarter, metrics, summary FROM quarterly_snapshots WHERE stock_id = $1 ORDER BY quarter ASC`,
+  const { rows: rawSnapshots } = await pool.query(
+    `SELECT quarter, metrics, summary FROM quarterly_snapshots WHERE stock_id = $1`,
     [stock.id]
   );
+  const snapshots = [...rawSnapshots].sort((a, b) => compareFiscalQuarters(a.quarter, b.quarter));
 
   const { rows: comms } = await pool.query(
     `SELECT id, commitment_title, statement, metric, target_value, timeline, status, credibility_impact 

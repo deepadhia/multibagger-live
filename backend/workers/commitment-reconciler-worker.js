@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: './.env.local' });
 import { pool } from '../db/pool.js';
+import { compareFiscalQuartersDesc } from '../utils/fiscal-quarter.js';
 
 /**
  * Parses numeric value from strings like "25%", "₹1,248 Cr", "308,000 MTPA", "15-20%".
@@ -38,10 +39,11 @@ export async function reconcileCommitments(ticker, dryRun = true) {
     [ticker]
   );
 
-  const { rows: snapshots } = await pool.query(
-    `SELECT quarter, metrics, summary FROM quarterly_snapshots WHERE stock_id = $1 ORDER BY quarter DESC`,
+  const { rows: rawSnapshots } = await pool.query(
+    `SELECT quarter, metrics, summary FROM quarterly_snapshots WHERE stock_id = $1`,
     [stock.id]
   );
+  const snapshots = [...rawSnapshots].sort((a, b) => compareFiscalQuartersDesc(a.quarter, b.quarter));
 
   // Systemic Guardrail: Filter snapshots to strictly Consolidated financial filings
   const consolidatedSnapshots = snapshots.filter(s => {

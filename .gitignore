@@ -65,8 +65,9 @@ scripts/scrape_and_download*
 !scripts/run_server_nim_ingest_pipeline.js
 
 # Generated Research Reports
-reports/
+reports/*
 !reports/high_conviction_theses/
+!reports/thesis_board/
 
 
 # Temporary Output & Artifacts
