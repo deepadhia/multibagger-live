@@ -2,7 +2,7 @@
 
 **Synthesis Model:** Layer 1 (Rank) + Layer 2 (Rolling 52W High / Drawdown) + Layer 3 (Thesis State) $\longrightarrow$ **Layer 4 Actionability**  
 **Core Investment Rule:** Never chase stocks trading within 5-10% of 52-week highs where growth is fully priced in. Prioritize businesses with accelerating operational drivers trading in genuine 15% to 35% consolidations.  
-**Generated At:** Sat, 22 Aug 2026 19:34:37 GMT  
+**Generated At:** Sat, 22 Aug 2026 19:37:30 GMT  
 **System Invariant:** Layer 1 Frozen Rankings Untouched (18/18 invariant, 0 mutations).
 
 ---

@@ -2,7 +2,7 @@
 
 **Coverage Standard:** 100% Portfolio Universe (18/18 Stocks)  
 **Contract Standard:** Every thesis is decomposed into 3–6 explicit, falsifiable operational drivers with underlying assumptions, grounded evidence, primary source anchors, direction, materiality, and exact falsification triggers.  
-**Generated At:** Sat, 22 Aug 2026 19:28:33 GMT  
+**Generated At:** Sat, 22 Aug 2026 19:37:33 GMT  
 **System Invariant:** Layer 1 Rankings Frozen (18/18 invariant, 0 mutations).
 
 ---
