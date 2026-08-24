@@ -15,7 +15,17 @@ import CalendarPage from "./pages/CalendarPage";
 import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/LoginPage";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes cache
+      gcTime: 1000 * 60 * 30, // 30 minutes memory cache
+      refetchOnWindowFocus: false, // Stop refetching on tab/window focus
+      refetchOnMount: false, // Use cached data on navigation
+      retry: 1,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

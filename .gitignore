@@ -64,10 +64,8 @@ scripts/audit_morepen*
 scripts/scrape_and_download*
 !scripts/run_server_nim_ingest_pipeline.js
 
-# Generated Research Reports
-reports/*
-!reports/high_conviction_theses/
-!reports/thesis_board/
+# Generated Research Reports & Runtime Dossiers
+reports/
 
 
 # Temporary Output & Artifacts
