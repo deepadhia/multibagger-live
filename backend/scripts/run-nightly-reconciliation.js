@@ -130,30 +130,34 @@ export async function runNightlyReconciliation({ isDryRun = false } = {}) {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // STEP 4: Check for Multi-Year AGM Catalysts / Major Order Wins
+  // STEP 4: Check for Verified Multi-Year Growth Catalysts & Material Order Wins
   // ──────────────────────────────────────────────────────────────────────────
-  console.log("\n--- 🔍 Step 4: Auditing Multi-Year Growth Catalysts & Order Wins ---");
+  console.log("\n--- 🔍 Step 4: Auditing Verified Multi-Year Growth Catalysts & Order Wins ---");
   try {
     const recentEvents = await pool.query(`
-      SELECT ca.id, ca.ticker, ca.title, ca.summary, ca.filing_category, ca.filing_date, ca.attachment_url
+      SELECT ca.id, ca.ticker, ca.title, ca.summary, ca.filing_category, ca.filing_date, ca.attachment_url, ca.impact
       FROM corporate_announcements ca
       WHERE ca.filing_date >= NOW() - INTERVAL '48 hours'
+        AND ca.priority = 'HIGH'
+        AND ca.impact IN ('POSITIVE', 'NEGATIVE')
+        AND ca.title NOT ILIKE '%shareholders meeting%'
+        AND ca.title NOT ILIKE '%record date%'
+        AND ca.title NOT ILIKE '%newspaper publication%'
+        AND ca.title NOT ILIKE '%loss of share%'
+        AND ca.title NOT ILIKE '%trading window%'
         AND (
-          ca.priority = 'HIGH' 
-          OR ca.title ILIKE '%agm%' 
-          OR ca.title ILIKE '%order%' 
-          OR ca.title ILIKE '%capacity%' 
-          OR ca.title ILIKE '%turnover%'
-          OR ca.summary ILIKE '%crore%'
+          ca.filing_category IN ('ORDER_WIN', 'CAPEX_COMMISSIONING', 'SCHEME_OF_ARRANGEMENT', 'REGULATORY_ACTION', 'CREDIT_EVENT')
+          OR (ca.title ILIKE '%order win%' OR ca.title ILIKE '%contract award%' OR ca.title ILIKE '%commercial operation%')
         )
       ORDER BY ca.filing_date DESC
     `);
 
     for (const ev of recentEvents.rows) {
+      const icon = ev.impact === 'NEGATIVE' ? '⚠️' : '🚀';
       summaryReport.newAlerts.push({
         ticker: ev.ticker,
         type: "MATERIAL_GROWTH_CATALYST",
-        text: `🚀 **${ev.ticker}**: ${ev.title}\n   ${ev.summary ? `_${ev.summary.substring(0, 180)}..._` : ""}`
+        text: `${icon} **${ev.ticker}**: ${ev.title}\n   ${ev.summary ? `_${ev.summary.substring(0, 180)}..._` : ""}`
       });
     }
   } catch (err) {
