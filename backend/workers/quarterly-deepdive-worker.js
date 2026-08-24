@@ -427,31 +427,36 @@ export async function processPendingDeepDives(options = {}) {
         textLower.includes("audio recording") ||
         textLower.includes("intimation of schedule of analyst") ||
         textLower.includes("closure of trading") ||
+        textLower.includes("agm notice") ||
+        textLower.includes("notice of the annual general meeting") ||
+        textLower.includes("e-voting instructions") ||
+        textLower.includes("shareholders meeting") ||
+        textLower.includes("record date") ||
+        textLower.includes("cost auditor") ||
         textLower.includes("investor meet");
 
       const isCoreEarningsDoc =
         textLower.includes("transcript") ||
         textLower.includes("concall") ||
-        textLower.includes("presentation") ||
-        textLower.includes("financial result") ||
-        textLower.includes("outcome of board meeting") ||
         textLower.includes("investor presentation") ||
-        textLower.includes("result release");
+        textLower.includes("financial result") ||
+        textLower.includes("un-audited financial") ||
+        textLower.includes("audited financial") ||
+        (textLower.includes("outcome of board meeting") && (textLower.includes("financial") || textLower.includes("result")));
 
       const isHighValueOperationalDoc =
-        textLower.includes("commission") ||
         textLower.includes("commercial production") ||
         textLower.includes("commercial operation") ||
-        textLower.includes("plant") ||
-        textLower.includes("facility") ||
-        textLower.includes("factory") ||
-        textLower.includes("unit") ||
-        textLower.includes("order") ||
-        textLower.includes("award") ||
-        textLower.includes("contract") ||
-        textLower.includes("expansion") ||
-        textLower.includes("acquisition") ||
-        textLower.includes("joint venture");
+        textLower.includes("commissioning of plant") ||
+        textLower.includes("plant commissioning") ||
+        textLower.includes("order win") ||
+        textLower.includes("bagging of order") ||
+        textLower.includes("letter of award") ||
+        textLower.includes("contract award") ||
+        textLower.includes("capacity expansion") ||
+        textLower.includes("scheme of arrangement") ||
+        textLower.includes("demerger") ||
+        textLower.includes("acquisition of");
 
       if (isRoutineNotice && !isCoreEarningsDoc && !isHighValueOperationalDoc) {
         console.log(`[WORKER FAST-SKIP] Marked procedural filing as not_required: ${item.title}`);
@@ -538,7 +543,22 @@ export async function processPendingDeepDives(options = {}) {
         verdict.verdict_summary.includes("Deep-dive completed; maintaining neutral hold signal") ||
         verdict.verdict_summary.includes("Filing evaluated cleanly.");
 
-      if (!suppressTelegram && !isGenericFallback) {
+      // Strict Materiality Filter: Only alert for genuine earnings, concalls, or high-conviction/actionable signals
+      const hasRealFinancials = verdict.financial_highlights && (
+        (verdict.financial_highlights.revenue && verdict.financial_highlights.revenue !== "N/A") ||
+        (verdict.financial_highlights.pat_consolidated && verdict.financial_highlights.pat_consolidated !== "N/A") ||
+        (verdict.financial_highlights.ebitda && verdict.financial_highlights.ebitda !== "N/A")
+      );
+      const isActionableSignal = verdict.action_signal && verdict.action_signal !== "HOLD";
+      const isHighConviction = verdict.conviction_score && verdict.conviction_score >= 7;
+      const hasMaterialCommitments = verdict.commitments && Array.isArray(verdict.commitments) && verdict.commitments.some(c => 
+        (c.status || "").toLowerCase().includes("achieved") || (c.status || "").toLowerCase().includes("missed")
+      );
+      const isConcall = Boolean(verdict.concall_highlights) || item.title.toLowerCase().includes("transcript") || item.title.toLowerCase().includes("concall");
+      
+      const isMaterialAlert = hasRealFinancials || isActionableSignal || isHighConviction || hasMaterialCommitments || isConcall;
+
+      if (!suppressTelegram && !isGenericFallback && isMaterialAlert) {
         const signalEmoji = verdict.action_signal === "ADD" 
           ? "🟢 [BUY/ADD]" 
           : (verdict.action_signal === "TRIM" ? "🔴 [TRIM/SELL]" : (verdict.action_signal === "EXIT" ? "🔴 [EXIT]" : "🟡 [HOLD]"));
