@@ -289,19 +289,21 @@ export async function scan({ isDryRun = false, runUrl = null, targetTicker = nul
 
         // Defer Stage 1 results and Stage 2 concall alerts to quarterly-deepdive-worker.js
         const isQueuedForDeepDive = deepDiveStatus === "pending_stage1" || deepDiveStatus === "pending_stage2";
-        const shouldHaveAlerted = !isQueuedForDeepDive && (isAgmCompleted || isRegulatoryOrCredit || aiResult.priority === "HIGH");
+        const shouldHaveAlerted = !isQueuedForDeepDive && (isAgmCompleted || aiResult.priority === "HIGH");
 
-        // 7a. Event-level Deduplication Guard (Check if alert sent recently for same ticker & event type/doc URL)
+        // 7a. Event-level Deduplication Guard (Check if alert sent recently for same ticker & event identity)
         let isDuplicateEvent = false;
-        if (shouldHaveAlerted && (concallType || aiResult.is_earnings_release || docUrl)) {
+        if (shouldHaveAlerted) {
           isDuplicateEvent = await isEventAlertRecentlySent({
             ticker,
+            title,
             concall_type: concallType,
             is_earnings_release: aiResult.is_earnings_release,
-            attachment_url: docUrl
+            attachment_url: docUrl,
+            filing_category: filingCategory
           });
           if (isDuplicateEvent) {
-            console.log(`[SKIP DUP] Event alert already sent for ${ticker} (${concallType ? 'concall:'+concallType : (aiResult.is_earnings_release ? 'earnings' : 'doc')}). Skipping duplicate Telegram alert.`);
+            console.log(`[SKIP DUP] Event alert already sent for ${ticker} ("${title}"). Skipping duplicate Telegram alert.`);
           }
         }
 

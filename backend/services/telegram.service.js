@@ -111,119 +111,105 @@ export async function sendTelegramMessage(text) {
  * @param {number}  [params.pdf_flag]         - BSE PDFFLAG (0/1/2) for URL routing
  * @param {string}  [params.source]           - "BSE" | "NSE"
  */
+function formatToBullets(text) {
+  if (!text) return "";
+  const cleaned = text.trim();
+  if (cleaned.startsWith("•") || cleaned.startsWith("-") || cleaned.startsWith("*")) {
+    return cleaned;
+  }
+  // Convert multi-sentence paragraphs into crisp bullet points
+  const sentences = cleaned.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).map(s => s.trim()).filter(Boolean);
+  if (sentences.length > 1) {
+    return sentences.map(s => `• ${s}`).join("\n");
+  }
+  return `• ${cleaned}`;
+}
+
+/**
+ * Sends a high-impact, institutional-grade announcement alert to Telegram.
+ */
 export async function sendAnnouncementAlert(params) {
   const {
     ticker, title, priority, impact, summary, confidence,
     key_data, deep_dive_indicator, promises_reconciliation, thesis_strengthened, result_date,
-    is_earnings_release, concall_type, concall_date, concall_time, is_rescheduled, category, exchangeTimestamp, docUrl, source = "BSE",
-    is_agm, agm_status, agm_highlights, thesis_drift_state, root_cause, recovery_state, final_action
+    is_earnings_release, concall_type, concall_date, concall_time, is_rescheduled, category, exchangeTimestamp, docUrl, source = "NSE",
+    is_agm, agm_status, agm_highlights, thesis_drift_state, root_cause, recovery_state, final_action, action_signal_authorized = false
   } = params || {};
 
-  const priorityEmoji  = priority === "HIGH" ? "🔴" : priority === "MEDIUM" ? "🟡" : "⚪";
-  const impactEmoji    = impact === "POSITIVE" ? "📈" : impact === "NEGATIVE" ? "📉" : "⚖️";
-  const confidenceBadge = confidence === "HIGH" ? "✅ HIGH" : "⚠️ LOW";
+  const impactEmoji = impact === "POSITIVE" ? "📈" : impact === "NEGATIVE" ? "📉" : "⚖️";
   
   // Format the exchange timestamp to IST
   const timestamp = exchangeTimestamp 
     ? new Date(exchangeTimestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
     : getIstTimestamp();
 
-  // ── 1. Header ─────────────────────────────────────────────────────────────
-  let message = `🚀 *${priority} IMPACT ALERT*\n`;
-  message    += `${impactEmoji} *${impact.toUpperCase()}* | *${ticker.toUpperCase()}*\n`;
-  message    += `_${category ? category : "General"}_ • 🏛️ ${source}\n`;
+  // ── 1. Clean Compact Header ────────────────────────────────────────────────
+  let message = `${impactEmoji} *${ticker.toUpperCase()}* | *${priority.toUpperCase()} PRIORITY*\n`;
+  message    += `_${category ? category : "Corporate Announcement"}_ • 🏛️ ${source}\n`;
   message    += `─────────────────────────\n`;
 
-  // ── 2. Event Banner Blocks ────────────────────────────────────────────────
+  // ── 2. Event Banner ────────────────────────────────────────────────────────
   if (is_earnings_release) {
-    message += `💰 *FINANCIAL RESULTS DECLARED* 💰\n`;
-    message += `─────────────────────────\n`;
+    message += `💰 *FINANCIAL RESULTS DECLARED*\n─────────────────────────\n`;
+  } else if (is_agm && agm_status === "completed") {
+    message += `🏛️ *AGM PROCEEDINGS COMPLETED*\n─────────────────────────\n`;
+  } else if (concall_type === "transcript") {
+    message += `📄 *CONCALL TRANSCRIPT AUDITED*\n─────────────────────────\n`;
+  } else if (concall_type === "audio") {
+    message += `🎧 *CONCALL AUDIO RECORDING*\n─────────────────────────\n`;
   }
 
-  if (is_agm) {
-    if (agm_status === "completed") {
-      message += `🏛️ *ANNUAL GENERAL MEETING COMPLETED* 🏛️\n`;
-    } else if (agm_status === "scheduled") {
-      message += `📅 *ANNUAL GENERAL MEETING SCHEDULED* 📅\n`;
-    }
-    message += `─────────────────────────\n`;
+  // ── 3. Executive Summary (Crisp Bullet Points) ────────────────────────────
+  if (summary) {
+    message += `📋 *EXECUTIVE SUMMARY*\n${formatToBullets(summary)}\n\n`;
   }
 
-  if (concall_type) {
-    if (concall_type === "transcript") {
-      message += `📄 *CONCALL TRANSCRIPT OUT* 📄\n`;
-    } else if (concall_type === "audio") {
-      message += `🎧 *CONCALL AUDIO RECORDING OUT* 🎧\n`;
-    } else if (concall_type === "scheduled") {
-      message += is_rescheduled ? `🔄 *CONCALL RESCHEDULED* 🔄\n` : `📅 *CONCALL SCHEDULED* 📅\n`;
-    } else {
-      message += `🎤 *CONCALL COMPLETED* 🎤\n`;
-    }
-    if (concall_date) {
-      message += `🎙️ *Date:* ${concall_date}${concall_time ? ` at ${concall_time}` : ""}\n`;
-    }
-    message += `─────────────────────────\n`;
-  }
-
-  // ── 3. Financial Performance & Metric Trends Block ────────────────────────
+  // ── 4. Key Financial & Operational Data ──────────────────────────────────
   if (key_data && key_data !== "No specific figures disclosed." && key_data !== "No specific figures extracted.") {
-    message += `📊 *FINANCIAL PERFORMANCE & TRENDS*\n${key_data}\n\n`;
+    message += `📊 *KEY METRICS & MECHANICS*\n${formatToBullets(key_data)}\n\n`;
   }
 
-  // ── 4. Promises & Guidance Reconciliation Block ───────────────────────────
-  if (promises_reconciliation) {
-    message += `🎯 *PROMISES & GUIDANCE RECONCILIATION*\n${promises_reconciliation}\n\n`;
+  // ── 5. Primary Thesis Impact ──────────────────────────────────────────────
+  const thesisContent = thesis_strengthened || deep_dive_indicator;
+  if (thesisContent) {
+    message += `🛡️ *THESIS IMPLICATION*\n${formatToBullets(thesisContent)}\n\n`;
   }
 
-  // ── 5. Primary Thesis Milestones Strengthened Block ───────────────────────
-  if (thesis_strengthened || deep_dive_indicator) {
-    message += `🛡️ *PRIMARY THESIS MILESTONES*\n${thesis_strengthened || deep_dive_indicator}\n\n`;
-  }
+  // ── 6. Action Signal Banner (Institutional Gatekeeping) ────────────────────
+  // IMPORTANT:
+  // Alert priority and investment action are separate concepts.
+  // HIGH priority means "material enough to investigate/alert."
+  // BUY / ACCUMULATE requires explicit action authorization
+  // from audited earnings/concall analysis passing the applicable
+  // quantitative thesis gates.
+  // Strategic catalysts, M&A, orders and restructuring may strengthen
+  // the thesis but must NEVER independently authorize capital allocation.
 
-  // ── 6. AGM Highlights Block (Structured Points) ──────────────────────────
-  if (is_agm && agm_status === "completed" && agm_highlights) {
-    message += `🏛️ *AGM HIGHLIGHTS & KEY VOTING OUTCOMES*\n${agm_highlights}\n\n`;
-  }
+  const isAuditedAction = Boolean(action_signal_authorized) && (Boolean(is_earnings_release) || Boolean(concall_type));
 
-  // ── 7. Executive Summary ──────────────────────────────────────────────────
-  message += `📋 *EXECUTIVE SUMMARY*\n${summary}\n\n`;
-
-  // ── 8. Thesis Drift & Root Cause Audit ────────────────────────────────────
-  if (thesis_drift_state) {
-    const driftEmoji = thesis_drift_state === 'NONE' ? '🟢' : thesis_drift_state === 'EMERGING' ? '🟡' : '🔴';
-    message += `🛡️ *Thesis Drift Audit:* ${driftEmoji} *${thesis_drift_state}*\n`;
-    if (root_cause) message += `🧩 *Root Cause:* ${root_cause}\n`;
-    if (recovery_state) message += `🔄 *Recovery State:* ${recovery_state}\n\n`;
-  }
-
-  // ── 9. Institutional Action Signal Banner ──────────────────────────────────
-  const isCleanBeat = impact === 'POSITIVE' && priority === 'HIGH';
-  
-  if (is_earnings_release && !concall_type && !isCleanBeat) {
-    message += `🎯 *ACTION SIGNAL:* ⏳ *WAIT FOR CONCALL TRANSCRIPT*\n`;
-    message += `_Raw financial tables ingested. Full thesis verdict pending concall audit._\n`;
-  } else if (final_action) {
+  if (is_earnings_release && !concall_type && !isAuditedAction) {
+    // Raw financial table ingested prior to full concall / quantitative gate audit
+    message += `🎯 *ACTION SIGNAL:* ⏳ *WAIT FOR CONCALL TRANSCRIPT (Raw Earnings Ingested — Pending Concall Audit)*\n`;
+  } else if (isAuditedAction && final_action) {
+    // Authorized action from completed quarterly deep-dive worker
     const actionUpper = final_action.toUpperCase();
     const actionEmoji = actionUpper.includes('BUY') || actionUpper.includes('ACCUMULATE') ? '🟢' : actionUpper.includes('HOLD') ? '🟡' : '🔴';
     message += `🎯 *ACTION SIGNAL:* ${actionEmoji} *${actionUpper}*\n`;
-  } else if (isCleanBeat) {
-    message += `🎯 *ACTION SIGNAL:* 🟢 *BUY MORE / ACCUMULATE (Clean Guidance Beat)*\n`;
+  } else if (impact === 'POSITIVE') {
+    // Strategic corporate actions (M&A, restructuring, order wins)
+    message += `🎯 *ACTION SIGNAL:* 🟡 *HOLD / MONITOR — Strategic Catalyst; Await Earnings Confirmation*\n`;
+  } else if (impact === 'NEGATIVE') {
+    message += `🎯 *ACTION SIGNAL:* 🔴 *RISK FLAG / WATCHLIST (Evaluate Thesis Deviation)*\n`;
   } else {
-    message += `🎯 *AI Confidence:* ${confidenceBadge}\n`;
+    message += `🎯 *ACTION SIGNAL:* 🟡 *HOLD / MONITOR (Neutral Corporate Action)*\n`;
   }
 
-  // ── 10. Next Results & Document Link Footer ──────────────────────────────
-  if (result_date) {
-    message += `📅 *Next Results:* ${result_date}\n`;
-  }
-
+  // ── 7. Document Link & Timestamp Footer ───────────────────────────────────
   if (docUrl) {
     message += `\n📄 [View Official Filing →](${docUrl})\n`;
   }
-
   message += `─────────────────────────\n`;
-  message += `_"${title}"_\n`;
-  message += `_🕐 ${timestamp}_`;
+  message += `_Filing: "${title}" • 🕐 ${timestamp}_`;
 
   return sendTelegramMessage(message);
 }
@@ -232,30 +218,16 @@ export async function sendAnnouncementAlert(params) {
 
 /**
  * Sends a post-scan run summary to Telegram.
- * Gives you visibility into every run — not just when alerts fire.
- *
- * @param {object} stats
- * @param {number} stats.stocksScanned      - Total stocks checked
- * @param {number} stats.newAnnouncements   - New announcements found (after dedup)
- * @param {number} stats.alertsSent         - HIGH priority alerts sent to Telegram
- * @param {number} stats.bseErrors          - Stocks where BSE fetch failed
- * @param {number} stats.nseErrors          - Stocks where NSE fetch failed
- * @param {number} stats.durationMs         - Total run time in ms
- * @param {string} [stats.runUrl]           - GitHub Actions run URL
- * @param {boolean} [stats.isDryRun]        - Was this a dry run?
+ * In live daemon mode, this is SILENT unless alerts were sent.
  */
 export async function sendRunSummary({
   stocksScanned, newAnnouncements, alertsSent,
   bseErrors = 0, nseErrors = 0, durationMs = 0,
   runUrl, isDryRun = false
 }) {
-  const durationSec = (durationMs / 1000).toFixed(1);
-  const timestamp   = getIstTimestamp();
-
-  // Don't send a summary if it's a routine quiet run (no new announcements or alerts)
-  const isQuiet = newAnnouncements === 0 && alertsSent === 0 && bseErrors === 0 && nseErrors === 0;
-  if (isQuiet) {
-    console.log(`[SUMMARY] Quiet run — no new live filings or alerts. Skipping Telegram summary.`);
+  // In 24/7 daemon mode, NEVER send summary if 0 alerts were sent (prevents 5-minute spam)
+  if (alertsSent === 0 && !isDryRun) {
+    console.log(`[SUMMARY] 0 alerts sent. Quiet daemon run — skipping Telegram summary.`);
     return;
   }
 

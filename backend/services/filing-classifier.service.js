@@ -66,17 +66,12 @@ export function classifyFilingCategory(title = "", text = "") {
     return "ORDER_WIN";
   }
 
-  // 5. CREDIT_EVENT (Rating revision/upgrade/downgrade)
-  if (
-    combined.includes("credit rating") ||
-    combined.includes("rating revision") ||
-    combined.includes("rating upgrade") ||
-    combined.includes("rating downgrade") ||
-    combined.includes("care rating") ||
-    combined.includes("crisil") ||
-    combined.includes("icra") ||
-    combined.includes("ind-ra")
-  ) {
+  // 5. CREDIT_EVENT (Rating revision/upgrade/downgrade on debt instruments)
+  const isDebtRatingAgency = /\b(crisil|care ratings?|icra|ind-ra|india ratings|brickwork|acuite)\b/i.test(combined);
+  const isCreditAction = /\b(credit rating|debt rating|rating revision|rating upgrade|rating downgrade|bank facilities rating|commercial paper rating)\b/i.test(combined);
+  const isEsgOnly = /\besg (rating|score|impact)\b/i.test(combined) && !isCreditAction;
+  
+  if ((isDebtRatingAgency || isCreditAction) && !isEsgOnly) {
     return "CREDIT_EVENT";
   }
 

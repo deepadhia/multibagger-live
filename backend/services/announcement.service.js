@@ -504,14 +504,15 @@ export async function isAnnouncementProcessed(ticker, sourceId, titleHash) {
 }
 
 /**
- * Checks if a Telegram alert for a specific event type (concall stage or earnings release)
- * or exact document URL has ALREADY been sent for this ticker within the last 24 hours.
- * Prevents duplicate alerts when NSE and BSE publish slightly different titles or IDs for the same event.
+ * Checks if a Telegram alert for a specific event identity has ALREADY been sent
+ * for this ticker within the last 6 to 24 hours.
+ * Prevents duplicate alerts when NSE and BSE publish slightly different titles or multiple
+ * circulars for the exact same underlying event, while allowing distinct events to pass.
  */
-export async function isEventAlertRecentlySent({ ticker, concall_type, is_earnings_release, attachment_url }) {
+export async function isEventAlertRecentlySent({ ticker, title, concall_type, is_earnings_release, attachment_url, filing_category }) {
   if (!ticker) return false;
 
-  // 1. Check attachment URL matching first if present
+  // 1. Check attachment URL / filename matching first if present (Exact document deduplication)
   if (attachment_url) {
     const filename = attachment_url.split('/').pop()?.split('?')[0];
     if (filename && filename.length > 8) {
@@ -559,6 +560,31 @@ export async function isEventAlertRecentlySent({ ticker, concall_type, is_earnin
       [ticker, `%${typeKeyword}%`]
     );
     if (res.rows.length > 0) return true;
+  }
+
+  // 4. Same-Day Event Identity Deduplication (Same ticker + same category + matching subject tokens within 6 hours)
+  if (filing_category && filing_category !== "GENERAL" && title) {
+    // Extract key identifying words (ignore generic stock/corporate stop words)
+    const stopWords = new Set(["outcome", "board", "meeting", "intimation", "disclosure", "update", "updates", "general", "under", "regulation", "sebi", "lodr", "ltd", "limited", "the", "and", "for", "with"]);
+    const tokens = title.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w));
+    
+    if (tokens.length > 0) {
+      const { rows } = await pool.query(
+        `SELECT id, title, raw_text FROM corporate_announcements 
+         WHERE ticker = $1 
+           AND sent_to_telegram = true 
+           AND filing_category = $2 
+           AND processed_at > NOW() - interval '6 hours'`,
+        [ticker, filing_category]
+      );
+      
+      for (const prev of rows) {
+        const prevText = `${prev.title || ""} ${prev.raw_text || ""}`.toLowerCase();
+        // If at least one specific identifying token (e.g. target company name, "merger", "resignation") matches
+        const hasTokenOverlap = tokens.some(t => prevText.includes(t));
+        if (hasTokenOverlap) return true;
+      }
+    }
   }
 
   return false;
