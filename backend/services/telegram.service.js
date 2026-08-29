@@ -175,33 +175,31 @@ export async function sendAnnouncementAlert(params) {
     message += `🛡️ *THESIS IMPLICATION*\n${formatToBullets(thesisContent)}\n\n`;
   }
 
-  // ── 6. Action Signal Banner (Institutional Gatekeeping) ────────────────────
+  // ── 6. Event Impact & Action Signal (Institutional Gatekeeping) ─────────────
   // IMPORTANT:
-  // Alert priority and investment action are separate concepts.
-  // HIGH priority means "material enough to investigate/alert."
-  // BUY / ACCUMULATE requires explicit action authorization
-  // from audited earnings/concall analysis passing the applicable
-  // quantitative thesis gates.
-  // Strategic catalysts, M&A, orders and restructuring may strengthen
-  // the thesis but must NEVER independently authorize capital allocation.
+  // Event impact and investment action are separate concepts.
+  // POSITIVE / NEGATIVE describes how the event affects the thesis.
+  // BUY / ACCUMULATE requires explicit authorization from audited
+  // earnings/concall analysis passing the applicable quantitative gates.
+  // Strategic catalysts must NEVER independently authorize capital allocation.
 
   const isAuditedAction = Boolean(action_signal_authorized) && (Boolean(is_earnings_release) || Boolean(concall_type));
 
   if (is_earnings_release && !concall_type && !isAuditedAction) {
     // Raw financial table ingested prior to full concall / quantitative gate audit
-    message += `🎯 *ACTION SIGNAL:* ⏳ *WAIT FOR CONCALL TRANSCRIPT (Raw Earnings Ingested — Pending Concall Audit)*\n`;
+    message += `🎯 *EARNINGS AUDIT:* ⏳ *AWAITING CONCALL TRANSCRIPT (Raw Financials Ingested — Pending Gate Audit)*\n`;
   } else if (isAuditedAction && final_action) {
-    // Authorized action from completed quarterly deep-dive worker
+    // Authorized action from completed quarterly deep-dive worker passing quantitative gates
     const actionUpper = final_action.toUpperCase();
     const actionEmoji = actionUpper.includes('BUY') || actionUpper.includes('ACCUMULATE') ? '🟢' : actionUpper.includes('HOLD') ? '🟡' : '🔴';
     message += `🎯 *ACTION SIGNAL:* ${actionEmoji} *${actionUpper}*\n`;
   } else if (impact === 'POSITIVE') {
     // Strategic corporate actions (M&A, restructuring, order wins)
-    message += `🎯 *ACTION SIGNAL:* 🟡 *HOLD / MONITOR — Strategic Catalyst; Await Earnings Confirmation*\n`;
+    message += `🎯 *THESIS IMPACT:* 🟢 *POSITIVE* — Strategic Catalyst; Await Earnings Evidence\n`;
   } else if (impact === 'NEGATIVE') {
-    message += `🎯 *ACTION SIGNAL:* 🔴 *RISK FLAG / WATCHLIST (Evaluate Thesis Deviation)*\n`;
+    message += `🎯 *THESIS IMPACT:* 🔴 *NEGATIVE* — Potential Thesis Deviation; Assess Earnings Impact\n`;
   } else {
-    message += `🎯 *ACTION SIGNAL:* 🟡 *HOLD / MONITOR (Neutral Corporate Action)*\n`;
+    message += `🎯 *THESIS IMPACT:* ⚪ *NEUTRAL* — No Material Thesis Change\n`;
   }
 
   // ── 7. Document Link & Timestamp Footer ───────────────────────────────────

@@ -13,6 +13,7 @@ import { NVIDIA_API_KEY } from "../config/env.js";
 import { extractDeterministicFinancials } from "../services/financial-validator.service.js";
 import { applyInstitutionalGuard } from "../services/institutional-guard.service.js";
 import { getVerifiedGroundTruth } from "../services/verified-data-layer.service.js";
+import { evaluateDualLayerActionGate } from "../services/thesis-gate-evaluator.service.js";
 import { buildFactRegistry, validateSynthesisClaims, calculateProgrammaticCommitmentStatus } from "../services/fact-registry.service.js";
 
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
@@ -467,13 +468,54 @@ export async function processPendingDeepDives(options = {}) {
       const cappedText = capContext(docText);
 
       // Evaluate Institutional Verdict via NVIDIA NIM LLM
-      const verdict = await evaluateInstitutionalVerdict(
+      const rawVerdict = await evaluateInstitutionalVerdict(
         item.ticker,
         item.investment_thesis,
         cappedText,
         item.deep_dive_status,
         item.title
       );
+
+      // 1. Retrieve Verified Ground Truth Financials for Ticker
+      const groundTruth = getVerifiedGroundTruth(item.ticker);
+      const deterministicFin = groundTruth && groundTruth.revenue
+        ? {
+            isFinancialResult: true,
+            revenue: groundTruth.revenue,
+            revenueYoYGrowthPct: groundTruth.revenueYoYGrowthPct,
+            ebitda: groundTruth.ebitda,
+            ebitdaMarginPct: groundTruth.ebitdaMarginPct,
+            ebitdaMarginBpsDelta: groundTruth.ebitdaMarginBpsDelta,
+            patConsolidated: groundTruth.patConsolidated,
+            patAttributable: groundTruth.patConsolidated,
+            patYoYGrowthPct: groundTruth.patYoYGrowthPct,
+            isYoYDecline: groundTruth.patYoYGrowthPct !== null && groundTruth.patYoYGrowthPct < 0,
+            isMarginErosion: Boolean(groundTruth.isMarginErosion) || (groundTruth.ebitdaMarginBpsDelta !== null && groundTruth.ebitdaMarginBpsDelta < -100),
+            exceptionalGain: groundTruth.EXCEPTIONAL_ITEM || null,
+            normalisedPat: groundTruth.CORE_PAT || null
+          }
+        : extractDeterministicFinancials(docText, item.title);
+
+      // 2. Apply Post-Processing Institutional Guard Layer (Deterministic Rules & YoY Precedence)
+      const verdict = applyInstitutionalGuard(rawVerdict, deterministicFin, item.title, item.ticker);
+
+      // 3. DUAL-LAYER QUANTITATIVE & THESIS GATE EVALUATION
+      // Layer 1: Universal Financial Health (Revenue > 0, PAT > 0, no margin collapse)
+      // Layer 2: Company-Specific Thesis Hurdle Rates (e.g. TIMETECHNO margin >= 14.5%, PAT >= 130 Cr, EBITDA >= 246 Cr)
+      const gateResult = evaluateDualLayerActionGate({
+        ticker: item.ticker,
+        financialData: deterministicFin,
+        proposedAction: verdict.action_signal || verdict.final_action,
+        llmConviction: verdict.conviction_score
+      });
+
+      // Hard mechanical gate enforcement outside model subjectivity:
+      verdict.action_signal = gateResult.finalAction;
+      verdict.final_action = gateResult.finalAction;
+      verdict.conviction_score = gateResult.calibratedConviction;
+      verdict.thesis_gate_result = gateResult;
+
+      console.log(`[DUAL-LAYER GATE] ${item.ticker}: ${gateResult.finalAction} (Status: ${gateResult.statusClassification}, Conviction: ${gateResult.calibratedConviction}/10). ${gateResult.decisionExplanation}`);
 
       // Save commitments into management_commitments table with deduplication & noise filtering
       if (verdict.commitments && verdict.commitments.length > 0) {
@@ -559,9 +601,16 @@ export async function processPendingDeepDives(options = {}) {
       const isMaterialAlert = hasRealFinancials || isActionableSignal || isHighConviction || hasMaterialCommitments || isConcall;
 
       if (!suppressTelegram && !isGenericFallback && isMaterialAlert) {
-        const signalEmoji = verdict.action_signal === "ADD" 
-          ? "🟢 [BUY/ADD]" 
-          : (verdict.action_signal === "TRIM" ? "🔴 [TRIM/SELL]" : (verdict.action_signal === "EXIT" ? "🔴 [EXIT]" : "🟡 [HOLD]"));
+        const gateInfo = verdict.thesis_gate_result || {};
+        const isAuthorizedBuy = (verdict.action_signal || '').includes('BUY') || (verdict.action_signal || '').includes('ADD');
+        const signalEmoji = isAuthorizedBuy 
+          ? "🟢 [BUY / ACCUMULATE]" 
+          : (verdict.action_signal === "WATCH / WAIT FOR CONFIRMATION" 
+            ? "🟡 [WATCH / WAIT FOR THESIS CONFIRMATION]" 
+            : (verdict.action_signal === "REASSESS THESIS" 
+              ? "🔴 [REASSESS THESIS]" 
+              : "🟡 [HOLD / MONITOR]"));
+        
         const stageName = item.deep_dive_status === "pending_stage1" ? "Stage 1: Earnings & PPT" : "Stage 2: Concall Transcript";
 
         let finText = "";
@@ -574,8 +623,18 @@ export async function processPendingDeepDives(options = {}) {
           if (fh.exceptional_gain_post_tax) parts.push(`• ⚠️ *Exceptional Gain:* ${fh.exceptional_gain_post_tax}`);
           if (fh.normalised_pat) parts.push(`• *Normalised PAT:* ${fh.normalised_pat}`);
           if (parts.length > 0) {
-            finText = `\n*Financial Highlights & Growth Metrics:*\n${parts.join('\n')}\n`;
+            finText = `\n📊 *FINANCIAL METRICS & GROWTH:*\n${parts.join('\n')}\n`;
           }
+        }
+
+        let gateAuditSec = "";
+        if (gateInfo.decisionExplanation) {
+          const gateBadge = gateInfo.statusClassification === 'THESIS_CONFIRMED_BEAT'
+            ? '🟢 *Thesis Confirmed Beat*'
+            : (gateInfo.statusClassification === 'GROWING_BUT_THESIS_UNCONFIRMED'
+              ? '🟡 *Growing, but Thesis Unconfirmed*'
+              : '🔴 *Thesis Deviation*');
+          gateAuditSec = `\n🎯 *THESIS GATE AUDIT:* ${gateBadge}\n• ${gateInfo.decisionExplanation}\n`;
         }
 
         // Format Commitment Reconciliation & Concall Checklist Sections
@@ -610,65 +669,64 @@ export async function processPendingDeepDives(options = {}) {
         if (verdict.concall_highlights) {
           const ch = verdict.concall_highlights;
           const finSec = (ch.financial_performance || ch.performance_overview || []).length > 0
-            ? `\n*📊 Financial Performance & Order Book:*\n${(ch.financial_performance || ch.performance_overview).map(p => `• ${p}`).join('\n')}\n`
+            ? `\n📊 *FINANCIAL METRICS & ORDER BOOK:*\n${(ch.financial_performance || ch.performance_overview).map(p => `• ${p}`).join('\n')}\n`
             : "";
           const bizSec = (ch.business_performance || ch.segment_highlights || []).length > 0
-            ? `\n*📦 Business Performance & Contract Wins:*\n${(ch.business_performance || ch.segment_highlights).map(b => `• ${b}`).join('\n')}\n`
-            : "";
-          const growthSec = (ch.growth_initiatives || ch.strategic_growth_drivers || []).length > 0
-            ? `\n*🚀 Growth Initiatives & Tech Catalysts:*\n${(ch.growth_initiatives || ch.strategic_growth_drivers).map(g => `• ${g}`).join('\n')}\n`
+            ? `\n📦 *BUSINESS EXECUTION & CONTRACT WINS:*\n${(ch.business_performance || ch.segment_highlights).map(b => `• ${b}`).join('\n')}\n`
             : "";
           const opsSec = (ch.operational_highlights || []).length > 0
-            ? `\n*🏭 Operational Highlights & Plant Status:*\n${ch.operational_highlights.map(o => `• ${o}`).join('\n')}\n`
+            ? `\n🏭 *OPERATIONS & CAPACITY EXPANSION:*\n${ch.operational_highlights.map(o => `• ${o}`).join('\n')}\n`
             : "";
           const guidSec = (ch.management_guidance || []).length > 0
-            ? `\n*📈 Management Guidance & Outlook:*\n${ch.management_guidance.map(g => `• ${g}`).join('\n')}\n`
+            ? `\n📈 *FORWARD GUIDANCE & TARGETS:*\n${ch.management_guidance.map(g => `• ${g}`).join('\n')}\n`
             : "";
           const posSec = (ch.key_positives || []).length > 0
-            ? `\n*✅ Key Positives:*\n${ch.key_positives.map(p => `• ${p}`).join('\n')}\n`
+            ? `\n✅ *KEY POSITIVES:*\n${ch.key_positives.map(p => `• ${p}`).join('\n')}\n`
             : "";
           const chalSec = (ch.key_challenges || ch.key_risks || []).length > 0
-            ? `\n*⚠️ Key Challenges & Risks:*\n${(ch.key_challenges || ch.key_risks).map(c => `• ${c}`).join('\n')}\n`
+            ? `\n⚠️ *KEY RISKS & CHALLENGES:*\n${(ch.key_challenges || ch.key_risks).map(c => `• ${c}`).join('\n')}\n`
             : "";
           const toneSec = ch.management_tone
-            ? `\n*🗣️ Management Tone:* ${ch.management_tone}\n`
+            ? `\n🗣️ *Management Tone:* ${ch.management_tone}\n`
             : "";
           const takeawaySec = ch.key_takeaway
-            ? `\n*🔑 Key Takeaway:*\n${ch.key_takeaway}\n`
+            ? `\n🔑 *DECISION BOTTOM LINE:*\n• ${ch.key_takeaway}\n`
             : "";
 
           const alertMsg = `
-🎙️ *${item.company_name.toUpperCase()} (${item.ticker}) | CONCALL HIGHLIGHTS*
-
-*Action Signal:* ${signalEmoji} (Conviction: ${verdict.conviction_score}/10)
-*Management Credibility:* ${verdict.credibility_tier}
-${finSec}${bizSec}${growthSec}${opsSec}${guidSec}${commText}${posSec}${chalSec}${toneSec}${takeawaySec}
-_Analysis generated by Institutional Engine_
+🎙️ *${item.company_name.toUpperCase()} (${item.ticker}) | CONCALL AUDIT*
+─────────────────────────
+🎯 *ACTION SIGNAL:* ${signalEmoji} (Conviction: ${verdict.conviction_score}/10 | Credibility: ${verdict.credibility_tier})
+─────────────────────────
+${gateAuditSec}${finSec}${bizSec}${opsSec}${guidSec}${commText}${posSec}${chalSec}${toneSec}${takeawaySec}
+─────────────────────────
+_Institutional Quarterly Concall Deep-Dive_
 `.trim();
 
           await sendTelegramMessage(alertMsg);
         } else {
           const validDrivers = (verdict.key_drivers || []).filter(d => d && d !== "Results under evaluation");
           const driversText = validDrivers.length > 0 
-            ? `\n*Key Thesis Drivers:*\n${validDrivers.map(d => `• ${d}`).join('\n')}\n`
+            ? `\n🛡️ *Key Thesis Drivers:*\n${validDrivers.map(d => `• ${d}`).join('\n')}\n`
             : "";
 
           const concallPoints = verdict.dodged_questions || verdict.concall_verification_points || verdict.concall_checklist;
           if (concallPoints && Array.isArray(concallPoints) && concallPoints.length > 0) {
-            concallText = `\n*🎙️ Concall Verification Points (What to check in Q&A):*\n${concallPoints.map(p => `• ${p}`).join('\n')}\n`;
+            concallText = `\n🎙️ *Concall Checklist (What to Verify in Q&A):*\n${concallPoints.map(p => `• ${p}`).join('\n')}\n`;
           }
 
           const alertMsg = `
 📊 *INSTITUTIONAL QUARTERLY VERDICT*
 *Stock:* ${item.company_name} (${item.ticker})
 *Review Stage:* ${stageName}
-
-*Action Signal:* ${signalEmoji} (Conviction: ${verdict.conviction_score}/10)
-*Management Credibility:* ${verdict.credibility_tier}
-${finText}${commText}
-*Verdict Summary:*
+─────────────────────────
+🎯 *ACTION SIGNAL:* ${signalEmoji} (Conviction: ${verdict.conviction_score}/10 | Credibility: ${verdict.credibility_tier})
+─────────────────────────
+${gateAuditSec}${finText}${commText}
+📋 *Verdict Summary:*
 ${verdict.verdict_summary}
 ${driversText}${concallText}
+─────────────────────────
 _Analysis generated by Institutional Engine_
 `.trim();
 
