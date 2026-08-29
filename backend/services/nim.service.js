@@ -123,11 +123,18 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
     ${cappedText}
   `;
 
-  const MAX_RETRIES = 3;
+  const ACTIVE_MODELS = [
+    "openai/gpt-oss-120b",
+    "nvidia/nemotron-3-super-120b-a12b",
+    "meta/llama-3.2-11b-vision-instruct",
+    "openai/gpt-oss-20b"
+  ];
+  const MAX_RETRIES = 4;
   const BASE_DELAY_MS = 2000;
   let lastError;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const currentModel = ACTIVE_MODELS[(attempt - 1) % ACTIVE_MODELS.length];
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout (NIM can be slow)
 
@@ -140,7 +147,7 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model: "meta/llama-3.1-70b-instruct",
+          model: currentModel,
           messages: [
             {
               role: "system",
@@ -152,7 +159,7 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
             },
           ],
           temperature: 0.1,
-          max_tokens: 800,
+          max_tokens: 1800,
           response_format: { type: "json_object" },
         }),
       });
@@ -164,16 +171,16 @@ export async function classifyAnnouncementWithNim(ticker, announcementText, titl
         try {
           errorData = await response.json();
         } catch (_) {}
-        console.error(`[AI ERROR] NVIDIA NIM API failed (attempt ${attempt}/${MAX_RETRIES}):`, errorData);
+        console.error(`[AI ERROR] NVIDIA NIM model ${currentModel} failed (attempt ${attempt}/${MAX_RETRIES}):`, errorData);
         
-        const isRetryable = [429, 503, 504].includes(response.status);
-        if (isRetryable && attempt < MAX_RETRIES) {
+        lastError = new Error(`NVIDIA NIM API error (${currentModel}): ${errorData.title || response.statusText || response.status}`);
+        if (attempt < MAX_RETRIES) {
           const delay = BASE_DELAY_MS * attempt;
-          console.warn(`[NIM] Retrying in ${delay}ms...`);
+          console.warn(`[NIM] Falling back to next model in ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
-        throw new Error(`NVIDIA NIM API error: ${errorData.message || response.statusText}`);
+        throw lastError;
       }
 
       const data = await response.json();

@@ -496,7 +496,8 @@ export async function isAnnouncementProcessed(ticker, sourceId, titleHash) {
   const result = await pool.query(
     `SELECT id FROM corporate_announcements 
      WHERE ticker = $1 
-     AND (source_id = $2 OR title_hash = $3)`,
+     AND (source_id = $2 OR title_hash = $3)
+     AND status != 'failed'`,
     [ticker, sourceId, titleHash]
   );
   return result.rows.length > 0;

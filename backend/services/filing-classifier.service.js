@@ -239,10 +239,17 @@ export async function extractCorporateActionDetails(category, ticker, announceme
   }
 
   const prompt = getCategoryPrompt(category, ticker, cappedText, investmentThesis);
-  const MAX_RETRIES = 2;
+  const ACTIVE_MODELS = [
+    "openai/gpt-oss-120b",
+    "nvidia/nemotron-3-super-120b-a12b",
+    "meta/llama-3.2-11b-vision-instruct",
+    "openai/gpt-oss-20b"
+  ];
+  const MAX_RETRIES = 4;
   const BASE_DELAY_MS = 2000;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const currentModel = ACTIVE_MODELS[(attempt - 1) % ACTIVE_MODELS.length];
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout
 
@@ -255,7 +262,7 @@ export async function extractCorporateActionDetails(category, ticker, announceme
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model: "meta/llama-3.1-70b-instruct",
+          model: currentModel,
           messages: [
             {
               role: "system",
@@ -267,7 +274,7 @@ export async function extractCorporateActionDetails(category, ticker, announceme
             },
           ],
           temperature: 0.05,
-          max_tokens: 700,
+          max_tokens: 1500,
           response_format: { type: "json_object" },
         }),
       });
@@ -275,7 +282,7 @@ export async function extractCorporateActionDetails(category, ticker, announceme
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        console.warn(`[NIM ACTION] Corporate action extraction failed status ${response.status} (attempt ${attempt}/${MAX_RETRIES})`);
+        console.warn(`[NIM ACTION] Model ${currentModel} failed status ${response.status} (attempt ${attempt}/${MAX_RETRIES})`);
         if (attempt < MAX_RETRIES) {
           await new Promise(r => setTimeout(r, BASE_DELAY_MS * attempt));
           continue;
