@@ -461,16 +461,20 @@ export async function fetchNseAnnouncements(symbol, lookbackDaysNum = 30) {
         const annDate = new Date(ann.sort_date || ann.an_dt || ann.dt);
         return annDate >= lookbackDate;
       })
-      .map(ann => ({
-        NEWS_ID: ann.seq_id || ann.desc || ann.dt, 
-        NEWSSUB: ann.desc,
-        DT_TM: ann.sort_date || ann.an_dt || ann.dt,
-        SOURCE: "NSE",
-        attachment: ann.attchmntFile 
-          ? (ann.attchmntFile.startsWith("http") ? ann.attchmntFile : `https://nsearchives.nseindia.com/corporate/${ann.attchmntFile}`)
-          : null,
-        attachment_text: ann.attchmntText
-      }));
+      .map(ann => {
+        const attachFilename = ann.attchmntFile ? ann.attchmntFile.split('/').pop()?.split('?')[0] : null;
+        const uniqueNewsId = ann.seq_id || attachFilename || `${ann.desc}_${ann.sort_date || ann.an_dt || ann.dt}`;
+        return {
+          NEWS_ID: uniqueNewsId,
+          NEWSSUB: ann.desc,
+          DT_TM: ann.sort_date || ann.an_dt || ann.dt,
+          SOURCE: "NSE",
+          attachment: ann.attchmntFile 
+            ? (ann.attchmntFile.startsWith("http") ? ann.attchmntFile : `https://nsearchives.nseindia.com/corporate/${ann.attchmntFile}`)
+            : null,
+          attachment_text: ann.attchmntText
+        };
+      });
   } catch (err) {
     console.error(`[NSE API ERROR] Failed for ${symbol}:`, err.message);
     return [];
