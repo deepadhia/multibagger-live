@@ -1,12 +1,15 @@
 /**
  * Thesis Gate Evaluator Service
  * 
- * Implements the Dual-Layer Gate Architecture:
+ * Implements the Dual-Layer Gate Architecture with Strict Fail-Closed Invariants:
  * Layer 1: Universal Financial Health Gate (Revenue growth, PAT growth, margin insulation)
- * Layer 2: Company-Specific Thesis Hurdle Gate (Predefined operational & financial targets per thesis contract)
+ * Layer 2: Company-Specific Thesis Hurdle Gate (Predefined primary operational & financial targets)
  * 
- * Action Authorization Invariant:
- * BUY / ACCUMULATE is technically impossible unless BOTH Layer 1 and Layer 2 are satisfied.
+ * Strict Fail-Closed Invariants:
+ * 1. Missing financial data → FAIL/UNAVAILABLE, never PASS.
+ * 2. Missing required thesis KPI → FAIL/UNAVAILABLE, never skip.
+ * 3. Missing thesis contract → NO_CONTRACT (no BUY authorization).
+ * 4. BUY / ACCUMULATE requires: universal.status === 'PASS' && thesis.status === 'PASS'.
  */
 
 import fs from 'fs';
@@ -37,29 +40,58 @@ function loadThesisContracts() {
 }
 
 /**
- * Evaluates Layer 1: Universal Financial Health Gate
+ * Evaluates Layer 1: Universal Financial Health Gate (Fail-Closed)
  */
 export function evaluateUniversalFinancialHealth(fin = {}) {
-  if (!fin || fin.revenue === null || fin.revenue === undefined) {
+  if (!fin || typeof fin !== 'object') {
     return {
+      status: 'UNAVAILABLE',
       passed: false,
-      reason: 'No verified financial data available'
+      reason: 'Verified financial dataset unavailable'
     };
   }
 
-  const patGrowth = fin.patYoYGrowthPct;
-  const revGrowth = fin.revenueYoYGrowthPct;
-  const isMarginEroded = fin.isMarginErosion || (fin.ebitdaMarginBpsDelta !== null && fin.ebitdaMarginBpsDelta < -150);
-
-  if (patGrowth !== null && patGrowth < 0) {
+  // 1. Mandatory Data Presence Checks (Fail-Closed: Missing data is NEVER positive evidence)
+  if (fin.patYoYGrowthPct === null || fin.patYoYGrowthPct === undefined || isNaN(fin.patYoYGrowthPct)) {
     return {
+      status: 'UNAVAILABLE',
+      passed: false,
+      reason: 'Verified PAT YoY growth rate unavailable'
+    };
+  }
+
+  if (fin.revenueYoYGrowthPct === null || fin.revenueYoYGrowthPct === undefined || isNaN(fin.revenueYoYGrowthPct)) {
+    return {
+      status: 'UNAVAILABLE',
+      passed: false,
+      reason: 'Verified Revenue YoY growth rate unavailable'
+    };
+  }
+
+  if (fin.ebitdaMarginPct === null || fin.ebitdaMarginPct === undefined || isNaN(fin.ebitdaMarginPct)) {
+    return {
+      status: 'UNAVAILABLE',
+      passed: false,
+      reason: 'Verified EBITDA margin percentage unavailable'
+    };
+  }
+
+  // 2. Deterministic Financial Health Checks
+  const patGrowth = Number(fin.patYoYGrowthPct);
+  const revGrowth = Number(fin.revenueYoYGrowthPct);
+  const isMarginEroded = Boolean(fin.isMarginErosion) || (fin.ebitdaMarginBpsDelta !== null && fin.ebitdaMarginBpsDelta !== undefined && Number(fin.ebitdaMarginBpsDelta) < -150);
+
+  if (patGrowth < 0) {
+    return {
+      status: 'FAIL',
       passed: false,
       reason: `PAT contraction (${patGrowth}% YoY)`
     };
   }
 
-  if (revGrowth !== null && revGrowth < 0) {
+  if (revGrowth < 0) {
     return {
+      status: 'FAIL',
       passed: false,
       reason: `Revenue contraction (${revGrowth}% YoY)`
     };
@@ -67,20 +99,19 @@ export function evaluateUniversalFinancialHealth(fin = {}) {
 
   if (isMarginEroded) {
     return {
+      status: 'FAIL',
       passed: false,
-      reason: `EBITDA Margin compression (${fin.ebitdaMarginBpsDelta ?? -150} bps YoY)`
+      reason: `Severe EBITDA margin compression (${fin.ebitdaMarginBpsDelta ?? -150} bps YoY)`
     };
   }
 
   return {
+    status: 'PASS',
     passed: true,
     reason: 'Positive revenue & PAT growth with intact operating margins'
   };
 }
 
-/**
- * Specific Hurdle Thresholds per Ticker Contract (Calibrated to Falsifiable Framework)
- */
 /**
  * Specific Hurdle Thresholds per Ticker Contract (Calibrated to Falsifiable Framework)
  * Primary Gates: Mandatory financial conditions for BUY authorization.
@@ -164,62 +195,84 @@ const SPECIFIC_THESIS_HURDLES = {
 };
 
 /**
- * Evaluates Layer 2: Company-Specific Thesis Hurdle Gate
+ * Evaluates Layer 2: Company-Specific Thesis Hurdle Gate (Fail-Closed)
  */
 export function evaluateThesisSpecificHurdle(ticker, fin = {}, operational = {}) {
   const symbol = (ticker || '').toUpperCase().trim();
   const hurdles = SPECIFIC_THESIS_HURDLES[symbol];
 
-  // If stock has no explicit static hurdle rule, evaluate against generic driver contract state
+  // If ticker has no explicit contract in SPECIFIC_THESIS_HURDLES, check driver contracts JSON
   if (!hurdles) {
     const contracts = loadThesisContracts();
     const contract = contracts.get(symbol);
-    if (contract && contract.drivers) {
-      const hasDeteriorating = contract.drivers.some(d => d.direction === 'DETERIORATING');
-      if (hasDeteriorating) {
-        return {
-          passed: false,
-          structuralConfirmed: false,
-          reason: 'One or more core thesis drivers deteriorating',
-          hurdlesEvaluated: 'Driver-Level Contract Check'
-        };
-      }
+    
+    // Fail-Closed: If no verified thesis contract exists, DO NOT allow BUY authorization
+    if (!contract || !contract.drivers || contract.drivers.length === 0) {
+      return {
+        status: 'NO_CONTRACT',
+        passed: false,
+        structuralConfirmed: false,
+        reason: `No verified thesis contract found for ${symbol} (capital deployment restricted)`,
+        hurdlesEvaluated: 'None'
+      };
     }
+
+    const hasDeteriorating = contract.drivers.some(d => d.direction === 'DETERIORATING');
+    if (hasDeteriorating) {
+      return {
+        status: 'FAIL',
+        passed: false,
+        structuralConfirmed: false,
+        reason: 'One or more core thesis drivers deteriorating in driver contract',
+        hurdlesEvaluated: 'Driver-Level Contract Check'
+      };
+    }
+
     return {
+      status: 'PASS',
       passed: true,
       structuralConfirmed: true,
-      reason: 'No restrictive thesis gate violation detected',
-      hurdlesEvaluated: 'Generic Contract Health'
+      reason: 'Driver-level thesis contract intact with stable/improving drivers',
+      hurdlesEvaluated: 'Driver Contract Verification'
     };
   }
 
   const primary = hurdles.primary || {};
   const failures = [];
+  const unavailable = [];
 
-  // 1. Primary EBITDA Margin Gate
-  if (primary.minEbitdaMarginPct !== undefined && fin.ebitdaMarginPct !== null && fin.ebitdaMarginPct !== undefined) {
-    if (fin.ebitdaMarginPct < primary.minEbitdaMarginPct) {
+  // 1. Primary EBITDA Margin Gate (Fail-Closed on missing KPI)
+  if (primary.minEbitdaMarginPct !== undefined) {
+    if (fin.ebitdaMarginPct === null || fin.ebitdaMarginPct === undefined || isNaN(fin.ebitdaMarginPct)) {
+      unavailable.push(`Required KPI EBITDA Margin unavailable in verified data`);
+    } else if (Number(fin.ebitdaMarginPct) < primary.minEbitdaMarginPct) {
       failures.push(`EBITDA Margin ${fin.ebitdaMarginPct}% < target ${primary.minEbitdaMarginPct}%`);
     }
   }
 
-  // 2. Primary PAT Gate
-  if (primary.minPatCr !== undefined && fin.patConsolidated !== null && fin.patConsolidated !== undefined) {
-    if (fin.patConsolidated < primary.minPatCr) {
+  // 2. Primary PAT Gate (Fail-Closed on missing KPI)
+  if (primary.minPatCr !== undefined) {
+    if (fin.patConsolidated === null || fin.patConsolidated === undefined || isNaN(fin.patConsolidated)) {
+      unavailable.push(`Required KPI Consolidated PAT unavailable in verified data`);
+    } else if (Number(fin.patConsolidated) < primary.minPatCr) {
       failures.push(`PAT ₹${fin.patConsolidated} Cr < target ₹${primary.minPatCr} Cr`);
     }
   }
 
-  // 3. Primary EBITDA Gate
-  if (primary.minEbitdaCr !== undefined && fin.ebitda !== null && fin.ebitda !== undefined) {
-    if (fin.ebitda < primary.minEbitdaCr) {
+  // 3. Primary EBITDA Gate (Fail-Closed on missing KPI)
+  if (primary.minEbitdaCr !== undefined) {
+    if (fin.ebitda === null || fin.ebitda === undefined || isNaN(fin.ebitda)) {
+      unavailable.push(`Required KPI EBITDA unavailable in verified data`);
+    } else if (Number(fin.ebitda) < primary.minEbitdaCr) {
       failures.push(`EBITDA ₹${fin.ebitda} Cr < target ₹${primary.minEbitdaCr} Cr`);
     }
   }
 
-  // 4. Primary Revenue Gate
-  if (primary.minRevenueCr !== undefined && fin.revenue !== null && fin.revenue !== undefined) {
-    if (fin.revenue < primary.minRevenueCr) {
+  // 4. Primary Revenue Gate (Fail-Closed on missing KPI)
+  if (primary.minRevenueCr !== undefined) {
+    if (fin.revenue === null || fin.revenue === undefined || isNaN(fin.revenue)) {
+      unavailable.push(`Required KPI Total Revenue unavailable in verified data`);
+    } else if (Number(fin.revenue) < primary.minRevenueCr) {
       failures.push(`Revenue ₹${fin.revenue} Cr < target ₹${primary.minRevenueCr} Cr`);
     }
   }
@@ -227,12 +280,29 @@ export function evaluateThesisSpecificHurdle(ticker, fin = {}, operational = {})
   // Evaluate Structural Confirmation Metric (e.g. VAP mix)
   let structuralConfirmed = true;
   const structural = hurdles.structural || {};
-  if (structural.targetVapSharePct !== undefined && operational.vapSharePct !== undefined) {
-    structuralConfirmed = operational.vapSharePct >= structural.targetVapSharePct;
+  if (structural.targetVapSharePct !== undefined) {
+    if (operational.vapSharePct !== undefined && operational.vapSharePct !== null) {
+      structuralConfirmed = Number(operational.vapSharePct) >= structural.targetVapSharePct;
+    } else if (fin.vapSharePct !== undefined && fin.vapSharePct !== null) {
+      structuralConfirmed = Number(fin.vapSharePct) >= structural.targetVapSharePct;
+    } else {
+      structuralConfirmed = false; // Pending structural data
+    }
+  }
+
+  if (unavailable.length > 0) {
+    return {
+      status: 'UNAVAILABLE',
+      passed: false,
+      structuralConfirmed,
+      reason: unavailable.join('; '),
+      hurdlesEvaluated: hurdles.description
+    };
   }
 
   if (failures.length > 0) {
     return {
+      status: 'FAIL',
       passed: false,
       structuralConfirmed,
       reason: failures.join('; '),
@@ -241,6 +311,7 @@ export function evaluateThesisSpecificHurdle(ticker, fin = {}, operational = {})
   }
 
   return {
+    status: 'PASS',
     passed: true,
     structuralConfirmed,
     reason: `All primary thesis hurdle rates satisfied (${hurdles.description})`,
@@ -256,34 +327,47 @@ export function evaluateDualLayerActionGate({ ticker, financialData, operational
   const universal = evaluateUniversalFinancialHealth(financialData);
   const thesis = evaluateThesisSpecificHurdle(ticker, financialData, operationalMetrics);
 
+  const actionAuthorized = universal.status === 'PASS' && thesis.status === 'PASS';
+
   let finalAction = 'HOLD';
   let calibratedConviction = Math.min(Number(llmConviction) || 5, 10);
   let statusClassification = 'NEUTRAL';
   let decisionExplanation = '';
 
-  if (universal.passed && thesis.passed) {
+  if (actionAuthorized) {
     // Both gates cleared -> Authorize BUY / ACCUMULATE
     // Structural confirmation adjusts conviction tier (9/10 for full structural beat vs 8/10 for primary gate pass)
     finalAction = (calibratedConviction >= 9 && thesis.structuralConfirmed) ? 'STRONG BUY' : 'ADD';
-    calibratedConviction = thesis.structuralConfirmed ? Math.max(calibratedConviction, 9) : Math.max(calibratedConviction, 8);
+    calibratedConviction = thesis.structuralConfirmed ? Math.max(calibratedConviction, 9) : 8;
     statusClassification = 'THESIS_CONFIRMED_BEAT';
     decisionExplanation = thesis.structuralConfirmed
       ? 'Primary financial growth and structural thesis hurdle rates verified.'
       : 'Primary financial hurdle rates cleared; structural metrics in confirmation phase.';
-  } else if (universal.passed && !thesis.passed) {
+  } else if (thesis.status === 'NO_CONTRACT') {
+    // No verified thesis contract -> Hold
+    finalAction = 'HOLD / MONITOR';
+    calibratedConviction = Math.min(calibratedConviction, 5);
+    statusClassification = 'NO_CONTRACT';
+    decisionExplanation = thesis.reason;
+  } else if (universal.status === 'PASS' && thesis.status === 'FAIL') {
     // Company is financially growing, but thesis-specific hurdle not yet met
     finalAction = 'WATCH / WAIT FOR CONFIRMATION';
     calibratedConviction = Math.min(calibratedConviction, 6);
     statusClassification = 'GROWING_BUT_THESIS_UNCONFIRMED';
     decisionExplanation = `Company is financially growing, but specific thesis gates unmet: ${thesis.reason}`;
-  } else if (!universal.passed && financialData && financialData.isMarginErosion) {
+  } else if (universal.status === 'UNAVAILABLE' || thesis.status === 'UNAVAILABLE') {
+    // Missing required data -> Strict Fail-Closed Holding Pattern
+    finalAction = 'HOLD / MONITOR';
+    calibratedConviction = Math.min(calibratedConviction, 5);
+    statusClassification = 'DATA_UNAVAILABLE';
+    decisionExplanation = `Data requirement unmet: ${universal.status === 'UNAVAILABLE' ? universal.reason : thesis.reason}`;
+  } else if (universal.status === 'FAIL') {
     // Margin compression or earnings contraction
     finalAction = 'REASSESS THESIS';
     calibratedConviction = Math.min(calibratedConviction, 4);
     statusClassification = 'THESIS_DEVIATION';
     decisionExplanation = `Universal financial health failure: ${universal.reason}`;
   } else {
-    // Default holding pattern
     finalAction = 'HOLD / MONITOR';
     calibratedConviction = Math.min(calibratedConviction, 5);
     statusClassification = 'NEUTRAL_HOLD';
@@ -291,7 +375,7 @@ export function evaluateDualLayerActionGate({ ticker, financialData, operational
   }
 
   return {
-    actionAuthorized: universal.passed && thesis.passed,
+    actionAuthorized,
     finalAction,
     calibratedConviction,
     statusClassification,
